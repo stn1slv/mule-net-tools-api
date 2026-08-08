@@ -6,6 +6,12 @@ The Net Tools API is a deployable Mule app that you can deploy to CloudHub or an
 
 This supports HTTP and HTTPS connections with a configurable port for each.
 
+## Requirements
+
+This version requires **Mule runtime 4.9 or later, running on Java 17**. Mule 4.9 does not run on Java 11, so this is a single combination rather than a choice.
+
+If you need to deploy to a worker running Mule 4.4, 4.6 or 4.8, use release [2.5.1](https://github.com/stn1slv/mulesoft-net-tools-api/releases/tag/2.5.1) or earlier, which targets Mule 4.1.3 and above.
+
 ## Features
 
 - DNS lookups
@@ -22,50 +28,159 @@ Latest build can be found here: https://github.com/stn1slv/mulesoft-net-tools-ap
 
 Builds up to the point the project was archived remain available on the [upstream releases page](https://github.com/mulesoft-labs/net-tools-api/releases), which no longer receives updates.
 
+## Cutting a release
+
+Releases are built by GitHub Actions. Pushing a version tag builds the app and opens a **draft** release with the deployable jar attached, so nothing becomes public until you review the notes and press Publish.
+
+```
+# 1. Bump <version> in pom.xml, then commit it
+# 2. Tag that commit and push the tag
+git tag 2.6.0
+git push origin 2.6.0
+```
+
+The workflow checks the tag against the version in `pom.xml` and fails immediately if they disagree, so bump the pom first. A leading `v` on the tag is accepted, since older tags used that form.
+
+Building locally needs the same toolchain the workflow uses, Java 17 and any current Maven:
+
+```
+mvn clean package
+```
+
 # Usage
 
-The UI can be accessed by using the base URL for the app.  The options are listed below.
+Every tool is available two ways: through the web UI and through the REST API. Both sit behind the same base URL and the same Basic Authentication.
 
 - CloudHub Shared Load Balancer: `http://{app-name}.{region}.cloudhub.io` where the app-name and region are specific to the deployed app.
 - Dedicated Load Balancer: `custom url`.  See *Configuration* section to update settings.
 
+## Web UI
+
+Open the base URL in a browser. Choose a tool from the dropdown, fill in the fields it shows, and press *Run*. Results appear in the console area underneath, and *Clean Console* clears them.
+
 The UI is protected by Basic Authentication, and the default credentials are listed in the *Configuration* section.
 
-## curl requests
+# REST API
+
+The UI is a thin layer over a REST API, so anything you can do in the browser you can also script. This is useful for running the same connectivity check from a pipeline, on a schedule, or across several targets at once.
+
+## Base path and authentication
+
+All endpoints live under `/api` on the same host as the UI, and all of them use HTTP Basic Authentication with the `user` and `pass` values from the *Configuration* section.
+
+```
+BASE='http://{app-name}.{region}.cloudhub.io/api'
+curl -u vpc-tools:SomePass "$BASE/ping?host=10.20.30.40"
+```
+
+Every tool runs from the Mule worker, so results describe what the *worker* can reach, which is the whole point when debugging a VPC or VPN path.
+
+## Responses
+
+Successful calls return `200` with `text/plain` containing the raw output of the underlying command, exactly as the UI displays it. There is no JSON envelope and no parsing, so treat the body as human-readable diagnostic text.
+
+A command that runs but fails to connect is still a `200`. For example, an unreachable host returns the curl or ping error text with a `200` status, because the tool did its job: it told you the target is unreachable. Reserve non-`2xx` handling for problems with the request itself.
+
+Errors from the API layer return JSON:
+
+| Status | Body | Cause |
+|---|---|---|
+| `400` | `{"message": "Bad request"}` | A required parameter is missing, or a value fails validation, such as an unsupported `method` |
+| `401` | *(empty)* | Missing or wrong Basic Authentication credentials |
+| `404` | `{"message": "Resource not found"}` | Unknown path under `/api` |
+| `405` | `{"message": "Method not allowed"}` | Right path, wrong HTTP method, such as `POST /api/ping` |
+| `415` | `{"message": "Unsupported media type"}` | A `POST /api/curl` body sent with a content type other than the three supported ones |
+
+## Endpoints
+
+| Method | Path | Parameters | What it does |
+|---|---|---|---|
+| `GET` | `/api/ping` | `host` | Sends four ICMP echo requests |
+| `GET` | `/api/traceroute` | `host` | Traces the network path, up to 18 hops |
+| `GET` | `/api/dns` | `host`, `dnsServer` *(optional)* | Resolves a name; with `dnsServer` it queries that resolver via `dig` |
+| `GET` | `/api/socket` | `host`, `port` | Opens a TCP connection five times and reports round-trip time |
+| `GET` | `/api/certest` | `host`, `port` | Retrieves the certificate chain presented by a TLS endpoint |
+| `GET` | `/api/ciphertest` | `host`, `port` | Tests every cipher the local OpenSSL knows against the endpoint |
+| `GET` | `/api/curl` | `url`, `method`, `header`, `insecure` | Sends an HTTP request without a body |
+| `POST` | `/api/curl` | same, plus a request body | Sends an HTTP request with a body |
+
+### Examples
+
+Check that the worker can resolve and reach an on-prem host:
+
+```
+curl -u vpc-tools:SomePass "$BASE/dns?host=erp.internal.example.com"
+curl -u vpc-tools:SomePass "$BASE/ping?host=erp.internal.example.com"
+```
+
+Resolve through a specific DNS server, which is how you confirm a private zone is being served:
+
+```
+curl -u vpc-tools:SomePass "$BASE/dns?host=erp.internal.example.com&dnsServer=10.0.0.2"
+```
+
+Confirm a firewall rule actually allows the port, which is usually more informative than ping because many networks drop ICMP:
+
+```
+curl -u vpc-tools:SomePass "$BASE/socket?host=erp.internal.example.com&port=1433"
+```
+
+Find where a path breaks:
+
+```
+curl -u vpc-tools:SomePass "$BASE/traceroute?host=erp.internal.example.com"
+```
+
+Inspect the certificate an endpoint presents, and which ciphers it accepts:
+
+```
+curl -u vpc-tools:SomePass "$BASE/certest?host=erp.internal.example.com&port=443"
+curl -u vpc-tools:SomePass "$BASE/ciphertest?host=erp.internal.example.com&port=443"
+```
+
+Note that `ciphertest` tries every cipher in turn, so it takes noticeably longer than the others.
+
+Remember to URL-encode parameter values. This matters most for `/api/curl`, where `url` and `header` values routinely contain `&`, `=` and `:`.
+
+## The curl endpoint in detail
 
 The curl tool sends `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. Any other value for the `method` parameter is rejected with a `400 Bad Request`.
 
-In the UI, pick the method from the dropdown next to the URL field and type the payload in the *request body* box. Leaving the body empty sends a request without a payload.
-
-The API can also be called directly. Without a body, use the `GET` endpoint:
+There are two endpoints on the same path. Use `GET /api/curl` when the request needs no body:
 
 ```
 curl -u vpc-tools:SomePass \
-  'http://{app-name}.{region}.cloudhub.io/api/curl?url=https://internal.example.com/health&method=GET'
+  "$BASE/curl?url=https://internal.example.com/health&method=GET"
 ```
 
-With a body, `POST` to the same path. The payload is sent in the request body:
+Use `POST /api/curl` when it does. Your payload goes in the request body and is forwarded to the target as-is:
 
 ```
 curl -u vpc-tools:SomePass -X POST \
   -H 'Content-Type: text/plain' \
   --data-raw '{"id": 1}' \
-  'http://{app-name}.{region}.cloudhub.io/api/curl?url=https://internal.example.com/orders&method=POST&header=Content-Type:application/json'
+  "$BASE/curl?url=https://internal.example.com/orders&method=POST&header=Content-Type:application/json"
 ```
+
+Note the two separate content types in that example. The `-H 'Content-Type: text/plain'` tells *this API* how to read your payload; the `header=Content-Type:application/json` is what the *target* will receive.
+
+In the UI the same choice is automatic: pick the method from the dropdown next to the URL field and type the payload in the *request body* box. Leaving the body empty sends a request without a payload.
 
 Query parameters for both endpoints:
 
-- `url`: the target URL. Required.
+- `url`: the target URL. Required. Must be `http` or `https`.
 - `method`: the HTTP method sent to the target. Defaults to `GET` when omitted, on both endpoints. Set it explicitly to `POST` when sending a body, otherwise the payload is attached to a GET request, which most servers ignore.
 - `header`: a `name:value` header for the target request. Repeat the parameter for multiple headers.
 - `insecure`: `true` skips TLS certificate verification (curl's `-k`). Defaults to `false`.
 
 Things worth knowing:
 
-- **The `Content-Type` the target receives comes from the `header` parameter**, not from the content type used to call this API. This is what lets you send a SOAP envelope (`header=Content-Type:text/xml`), a form post (`header=Content-Type:application/x-www-form-urlencoded`) or anything else.
-- **The POST endpoint accepts `application/json`, `application/xml` and `text/plain`.** JSON and XML bodies are parsed and re-serialised on the way through, so exact whitespace is not preserved and a malformed payload is rejected before it reaches curl. To send a payload byte for byte, including a deliberately malformed one, call the API with `Content-Type: text/plain`. The UI always uses `text/plain`.
+- **The `Content-Type` the target receives comes from the `header` parameter**, not from the content type used to call this API. This is what lets you send a SOAP envelope (`header=Content-Type:text/xml`), a form post (`header=Content-Type:application/x-www-form-urlencoded`) or anything else. If you send a body but no `Content-Type` header, curl labels it `application/x-www-form-urlencoded`, which is rarely what you want, so set the header explicitly.
+- **The POST endpoint accepts `application/json`, `application/xml` and `text/plain`.** JSON and XML bodies are parsed and re-serialised on the way through, so exact whitespace is not preserved, and a payload that does not parse fails with a `500` rather than a clean `400`. To send a payload byte for byte, including a deliberately malformed one, call the API with `Content-Type: text/plain`. The UI always uses `text/plain`.
 - **Requests time out.** curl runs with `--connect-timeout 10` and `--max-time 30`, so a blackholed host fails within about 30 seconds instead of holding a worker thread open.
-- **Redirects are followed** (curl's `-L`). curl converts a `POST` to a `GET` on a 301, 302 or 303 response, so a redirected POST arrives at the final host as a GET.
+- **Only `http` and `https` are allowed** (curl's `--proto` and `--proto-redir`). Other schemes such as `file://` are refused, on the original request and on any redirect.
+- **Header values may not start with `@`.** curl would treat that as "read this local file and send every line as a header", which would disclose files from the Mule worker.
+- **Redirects are followed** (curl's `-L`), and because the method is always set explicitly the *same* method is used on every hop. A redirected `POST` therefore arrives at the final host as a `POST`, but **curl does not resend the body**, so the final request carries an empty payload. If a target redirects, treat the response as evidence about routing rather than about how it handles your payload.
 - The request body is never placed in the URL, so it does not appear in the application log. Header values passed through `header` are part of the query string and *are* logged.
 
 # Configuration
