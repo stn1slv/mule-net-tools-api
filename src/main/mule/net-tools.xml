@@ -66,8 +66,12 @@ http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/
 			</http:error-response>
 		</http:listener>
 		<http:basic-security-filter doc:name="Basic security filter" realm="mule" />
+		<!-- requestPath, not requestUri: the query string carries the header parameter, so
+		     logging it would write Authorization values and any credentials embedded in the
+		     target url straight into the application log. The trade-off is that the log no
+		     longer records which target was probed. -->
 		<logger level="INFO"
-			message='#["$(attributes.scheme default "") $(attributes.method default "") $(attributes.requestUri default "")"]'
+			message='#["$(attributes.scheme default "") $(attributes.method default "") $(attributes.requestPath default "")"]'
 			doc:name="Log Endpoint" />
 		<apikit:router config-ref="net-tools-config" />
         <error-handler>
