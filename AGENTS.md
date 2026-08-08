@@ -60,13 +60,18 @@ remove one without understanding what it stops.
 |---|---|
 | `--data-binary @-` with the body on stdin | `-d <body>` treats a leading `@` as "read this local file". Passing the body as an argument also hits the Linux 128KB per-argument limit and exposes it in `ps`. |
 | reject headers starting with `@` | `-H @file` reads a local file and sends every line as a header to the caller's target. This was verified to exfiltrate the app's own Basic Auth password from `properties.yaml`. |
+| reject `\r` and `\n` in headers | curl writes `-H` values verbatim, so a line break lets the caller add its own headers, or write a whole second request line, which sidesteps the verb allowlist. Verified: a header value containing CRLF arrived at the target as a separate header. |
+| `-g` | Without it curl expands `[1-254]` and `{a,b}` in the URL, so one call becomes many requests. `--max-time` bounds each *transfer*, not the invocation, so `http://10.0.0.[1-254]/` against a blackholed range pins a worker thread for roughly 42 minutes. Verified: `/g[1-5]` produced five requests. |
+| `--max-filesize` | The whole response is buffered into a Java `String` and copied again on the way out, so an unbounded body can exhaust a small worker. |
 | `--proto =http,https` and `--proto-redir =http,https` | Without them, `url=file:///...` returns worker files in the response body. |
 | `--` before the URL | Otherwise a URL such as `-oFILE` is parsed as a curl option. |
 | `--connect-timeout` / `--max-time` | There was no timeout at all; an unresponsive target pinned a Mule worker thread indefinitely. |
-| `-sS` | `execute()` drains stdout fully before reading stderr, so curl's progress meter can fill the stderr pipe and deadlock. Also keeps meter noise out of the returned text. |
+| `-sS` | Keeps curl's progress meter, which it writes to stderr whenever stdout is not a terminal, out of the text returned to the caller. Errors still surface. `execute()` merges stderr into stdout with `redirectErrorStream(true)`, so this is presentation rather than the deadlock guard it originally was. |
 
 The verb allowlist is enforced twice, in the RAML `enum` and in Java. Keep both
-in step.
+in step. Note that the allowlist is only as strong as the header validation: a
+header value carrying CRLF can write its own request line, which is why the
+line-break check above matters as much as the verb list itself.
 
 **What is deliberately not restricted:** `http` and `https` to any reachable
 address. That is the point of the tool, but it means an authenticated caller can

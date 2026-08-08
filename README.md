@@ -162,7 +162,7 @@ curl -u vpc-tools:SomePass \
   "$BASE/curl?url=https://internal.example.com/health&method=GET"
 ```
 
-Use `POST /api/curl` when it does. Your payload goes in the request body and is forwarded to the target, byte for byte when you send it as `text/plain` (see the note on re-serialisation below):
+Use `POST /api/curl` when it does. Your payload goes in the request body and is forwarded to the target unchanged when you send it as `text/plain` UTF-8 (see the notes on re-serialisation and encoding below):
 
 ```
 curl -u vpc-tools:SomePass -X POST \
@@ -180,15 +180,18 @@ Query parameters for both endpoints:
 - `url`: the target URL. Required. Must be `http` or `https`.
 - `method`: the HTTP method sent to the target. Defaults to `GET` when omitted, on both endpoints. Set it explicitly to `POST` when sending a body, otherwise the payload is attached to a GET request, which most servers ignore.
 - `header`: a `name:value` header for the target request. Repeat the parameter for multiple headers.
-- `insecure`: `true` skips TLS certificate verification (curl's `-k`). Defaults to `false`.
+- `insecure`: `true` skips TLS certificate verification (curl's `-k`). Defaults to `false`, and the UI checkbox is unticked to match, so certificates are verified unless you deliberately turn that off.
+
+**On encoding:** the body is re-encoded as UTF-8 before it reaches the target. A payload sent in another charset, such as `text/plain; charset=ISO-8859-1`, therefore arrives as UTF-8 even though a `header=Content-Type:...;charset=ISO-8859-1` you set says otherwise, and binary payloads are not preserved. This tool is for text.
 
 Things worth knowing:
 
 - **The `Content-Type` the target receives comes from the `header` parameter**, not from the content type used to call this API. This is what lets you send a SOAP envelope (`header=Content-Type:text/xml`), a form post (`header=Content-Type:application/x-www-form-urlencoded`) or anything else. If you send a body but no `Content-Type` header, curl labels it `application/x-www-form-urlencoded`, which is rarely what you want, so set the header explicitly.
 - **The POST endpoint accepts `application/json`, `application/xml` and `text/plain`.** JSON and XML bodies are parsed and re-serialised on the way through, so exact whitespace is not preserved, and a payload that does not parse fails with a `500` rather than a clean `400`. To send a payload byte for byte, including a deliberately malformed one, call the API with `Content-Type: text/plain`. The UI always uses `text/plain`.
-- **Requests time out.** curl runs with `--connect-timeout 10` and `--max-time 30`, so a blackholed host fails within about 30 seconds instead of holding a worker thread open.
+- **Requests time out.** curl runs with `--connect-timeout 10` and `--max-time 30`, so a blackholed host fails within about 30 seconds instead of holding a worker thread open. URL globbing is disabled (`-g`), so a url such as `http://10.0.0.[1-254]/` is treated as a single literal address rather than expanding into 254 requests, each with its own timeout.
+- **Responses are capped at 10 MiB** (`--max-filesize`). The whole body is buffered in memory, so a larger response is refused rather than risking the worker.
 - **Only `http` and `https` are allowed** (curl's `--proto` and `--proto-redir`). Other schemes such as `file://` are refused, on the original request and on any redirect.
-- **Header values may not start with `@`.** curl would treat that as "read this local file and send every line as a header", which would disclose files from the Mule worker.
+- **Header values may not start with `@`, or contain line breaks.** curl treats a leading `@` as "read this local file and send every line as a header", which would disclose files from the Mule worker. A carriage return or line feed inside a header value would let the caller append headers of its own, or write an entire second request line, sidestepping the method allowlist.
 - **Redirects are followed** (curl's `-L`), and because the method is always set explicitly the *same* method is used on every hop. A redirected `POST` therefore arrives at the final host as a `POST`, but **curl does not resend the body**, so the final request carries an empty payload. If a target redirects, treat the response as evidence about routing rather than about how it handles your payload.
 - **Credentials for the target go in the `header` parameter**, for example `header=Authorization:Bearer%20eyJ...`. The application logs only the method and path, not the query string, so these values do not reach the log. They are still part of the request URL, so anything else in front of the app that logs full URLs, such as a load balancer or proxy, would still record them.
 - **Only the scheme is restricted, not the destination.** `http` and `https` to *any* reachable address are allowed by design, which is the point of the tool. That includes the worker's own listener on `127.0.0.1` and, on CloudHub 1.0, the instance metadata service on `169.254.169.254`. Anyone who can authenticate to this app can therefore reach whatever the worker can reach. Treat access to this tool as equivalent to shell access on the worker's network, and set a strong `pass`.
