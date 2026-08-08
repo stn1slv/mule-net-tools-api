@@ -103,6 +103,7 @@ Errors from the API layer return JSON:
 | `GET` | `/api/ciphertest` | `host`, `port` | Tests every cipher the local OpenSSL knows against the endpoint |
 | `GET` | `/api/curl` | `url`, `method`, `header`, `insecure` | Sends an HTTP request without a body |
 | `POST` | `/api/curl` | same, plus a request body | Sends an HTTP request with a body |
+| `GET` | `/api/diagnostics` | *(none)* | Reports the worker's own tooling, currently the curl build |
 
 ### Examples
 
@@ -139,6 +140,14 @@ curl -u vpc-tools:SomePass "$BASE/ciphertest?host=erp.internal.example.com&port=
 ```
 
 Note that `ciphertest` tries every cipher in turn, so it takes noticeably longer than the others.
+
+Check what the worker itself is working with, which is the one call that probes nothing remote:
+
+```
+curl -u vpc-tools:SomePass "$BASE/diagnostics"
+```
+
+It returns `curl --version`: the version, TLS backend and supported protocols. Worth checking when a request behaves unexpectedly, since the curl tool depends on specific flags being available in the worker's build.
 
 Remember to URL-encode parameter values. This matters most for `/api/curl`, where `url` and `header` values routinely contain `&`, `=` and `:`.
 

@@ -242,6 +242,17 @@ NetworkUtils::cipherTest(attributes.queryParams.host, attributes.queryParams.por
 			</ee:message>
 		</ee:transform>
 	</flow>
+	<flow name="get:\diagnostics:net-tools-config">
+		<ee:transform doc:name="Transform Message">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+import java!com::mulesoft::tool::network::NetworkUtils
+---
+NetworkUtils::curlVersion()]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
 	<flow name="get:\traceroute:net-tools-config">
         <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="
 http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd 

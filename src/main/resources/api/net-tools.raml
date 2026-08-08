@@ -161,9 +161,24 @@ traits:
         type: string
       port:
         description: The port number of host to be tested
-        type: number        
-    responses: 
+        type: number
+    responses:
       200:
-        body: 
+        body:
           text/plain:
             example: CONNECTED(00000005)
+
+/diagnostics:
+  get:
+    description: |
+      Reports the diagnostic tooling available on the Mule worker itself, rather
+      than probing a remote target. Currently the curl build, including its
+      version, TLS backend and supported protocols.
+    responses:
+      200:
+        body:
+          text/plain:
+            example: |
+              curl 8.7.1 (x86_64-apple-darwin23.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12
+              Protocols: dict file ftp ftps gopher gophers http https imap imaps ldap ldaps mqtt pop3 pop3s rtsp smb smbs smtp smtps telnet tftp
+              Features: alt-svc AsynchDNS GSS-API HSTS HTTP2 HTTPS-proxy IPv6 Kerberos Largefile libz MultiSSL NTLM SPNEGO SSL threadsafe UnixSockets

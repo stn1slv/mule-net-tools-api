@@ -146,6 +146,7 @@
                     <option value="curl">curl</option>
                     <option value="certest">certificates</option>
                     <option value="ciphertest">ssl ciphers</option>
+                    <option value="diagnostics">diagnostics</option>
                 </select>
                 <input name="ip" placeholder="IP Address or Host" type="text" title="IP" id="ip" />
                 <input name="port" placeholder="Port" type="text" title="PORT" id="port" />
@@ -169,7 +170,8 @@
               <div class="helpBox" id="pingHelp">Set an IP Address or Hostname and hit Run. <br/>Note: Ping works using ICMP protocol. If it has been disabled, the ping will not receive any response.</div>
 			  <div class="helpBox" id="tracerouteHelp" style="display: none;">Set an IP Address or Hostname and hit Run</div>	
               <div class="helpBox" id="socketHelp" style="display: none;">Set an IP Address or Hostname, the Port and hit Run</div>	
-			  <div class="helpBox" id="dnsHelp" style="display: none;">Set a Hostname and hit Run</div>	
+			  <div class="helpBox" id="dnsHelp" style="display: none;">Set a Hostname and hit Run</div>
+			  <div class="helpBox" id="diagnosticsHelp" style="display: none;">Reports the diagnostic tooling on the Mule worker itself, rather than probing a target. No input needed, just hit Run.</div>
 			  <div class="helpBox" id="curlHelp" style="display: none;">Pick the HTTP method, set an IP Address or Schema (http-https://) plus Hostname, the Port, the Path, the Headers (multi-line) and, for POST/PUT/PATCH, the request Body, then hit Run. <br/>Note: the Content-Type the target receives comes from the Headers box, for example <code>Content-Type:application/json</code>.</div>
 			</div>
             <pre id="output">
@@ -233,6 +235,9 @@
                         $("#dnsServer").show();                        
                         $("#dnsHelp").show();
                         break;
+                      case "diagnostics":
+                        $("#diagnosticsHelp").show();
+                        break;
                       case "curl":
                         $("#method").show();
                         $("#url").show();
@@ -257,7 +262,9 @@
                     var url = (operation === 'curl') ? $("#url").val() : '';
                     var port = (operation === 'socket' || operation === 'certest' || operation === 'ciphertest') ? $("#port").val() : '';
                     var dnsServer = (operation === 'dns') ? $("#dnsServer").val() : '';                    
-                    if (operation !== 'curl' && !ip) {
+                    // curl takes a url instead of a host, and diagnostics inspects the
+                    // worker itself, so neither needs an IP.
+                    if (operation !== 'curl' && operation !== 'diagnostics' && !ip) {
                         toastr["error"]("Missing IP", "Invalid Arguments")
                         console.error("Missing IP!");
                         return;

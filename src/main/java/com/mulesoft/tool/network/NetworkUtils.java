@@ -107,6 +107,13 @@ public class NetworkUtils {
 		return hasBody ? execute(pb, body) : execute(pb);
 	}
 
+	public static String curlVersion() throws IOException {
+		// Reports the worker's curl build: version, TLS backend and supported protocols.
+		// Useful when a request behaves unexpectedly, since this tool depends on specific
+		// curl flags being available.
+		return execute(new ProcessBuilder("curl", "--version"));
+	}
+
 	public static String testConnect(String host, String port) {
 		long startTime = System.nanoTime();
 		long totalTime = System.nanoTime();
