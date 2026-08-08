@@ -6,9 +6,12 @@ name: Release
 on:
   push:
     # Version-shaped tags only, so an unrelated tag does not produce a failed run.
+    # These are glob patterns, not regular expressions: '*' is "zero or more
+    # characters", so avoid '+' here, whose glob meaning is easy to get wrong.
+    # The tag-versus-pom guard below rejects anything that slips through.
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
   # Lets a failed run be retried from the Actions tab without deleting and
   # re-pushing the tag. Select the tag as the ref when running it.
   workflow_dispatch:
@@ -71,8 +74,15 @@ jobs:
           set -euo pipefail
           jar="target/net-tools-api-${VERSION}-mule-application.jar"
           test -f "$jar" || { echo "::error::Expected artifact not found: $jar"; exit 1; }
-          gh release create "$GITHUB_REF_NAME" \
-            --draft \
-            --generate-notes \
-            --title "$VERSION" \
-            "$jar"
+          # Idempotent, so re-running via workflow_dispatch after a partial failure
+          # attaches the jar instead of failing with "release already exists".
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::notice::Release $GITHUB_REF_NAME already exists; replacing the attached artifact."
+            gh release upload "$GITHUB_REF_NAME" "$jar" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --generate-notes \
+              --title "$VERSION" \
+              "$jar"
+          fi
