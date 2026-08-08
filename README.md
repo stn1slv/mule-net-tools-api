@@ -153,7 +153,7 @@ curl -u vpc-tools:SomePass \
   "$BASE/curl?url=https://internal.example.com/health&method=GET"
 ```
 
-Use `POST /api/curl` when it does. Your payload goes in the request body and is forwarded to the target as-is:
+Use `POST /api/curl` when it does. Your payload goes in the request body and is forwarded to the target, byte for byte when you send it as `text/plain` (see the note on re-serialisation below):
 
 ```
 curl -u vpc-tools:SomePass -X POST \
@@ -181,7 +181,8 @@ Things worth knowing:
 - **Only `http` and `https` are allowed** (curl's `--proto` and `--proto-redir`). Other schemes such as `file://` are refused, on the original request and on any redirect.
 - **Header values may not start with `@`.** curl would treat that as "read this local file and send every line as a header", which would disclose files from the Mule worker.
 - **Redirects are followed** (curl's `-L`), and because the method is always set explicitly the *same* method is used on every hop. A redirected `POST` therefore arrives at the final host as a `POST`, but **curl does not resend the body**, so the final request carries an empty payload. If a target redirects, treat the response as evidence about routing rather than about how it handles your payload.
-- The request body is never placed in the URL, so it does not appear in the application log. Header values passed through `header` are part of the query string and *are* logged.
+- **Credentials for the target go in the `header` parameter**, for example `header=Authorization:Bearer%20eyJ...`. The application logs only the method and path, not the query string, so these values do not reach the log. They are still part of the request URL, so anything else in front of the app that logs full URLs, such as a load balancer or proxy, would still record them.
+- **Only the scheme is restricted, not the destination.** `http` and `https` to *any* reachable address are allowed by design, which is the point of the tool. That includes the worker's own listener on `127.0.0.1` and, on CloudHub 1.0, the instance metadata service on `169.254.169.254`. Anyone who can authenticate to this app can therefore reach whatever the worker can reach. Treat access to this tool as equivalent to shell access on the worker's network, and set a strong `pass`.
 
 # Configuration
 The properties below can be set on the app to override the default settings.  The proper ports must be set to accommodate load balancer and VPC firewall rule settings.  The default settings are for the CloudHub shared load balancer HTTP endpoint.
