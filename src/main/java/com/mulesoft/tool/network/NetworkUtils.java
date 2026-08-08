@@ -8,6 +8,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -53,7 +54,7 @@ public class NetworkUtils {
 		//-L follow redirects
 		//-k insecure
 		//-X the HTTP method sent to the target
-		//--data-raw the request body, sent verbatim ('-d' would read a local file for an '@' prefix)
+		//--data-binary @- the request body, piped through stdin and sent verbatim
 		//--proto/--proto-redir restrict curl to http and https, so 'file://' cannot read worker files
 		String verb = (method == null || method.trim().isEmpty())
 				? "GET" : method.trim().toUpperCase(Locale.ROOT);
@@ -67,6 +68,10 @@ public class NetworkUtils {
 		if(insecure != null && insecure) command.add("-k");
 		command.add("-i");
 		command.add("-L");
+		// -sS silences the progress meter, which curl writes to stderr whenever stdout is
+		// not a terminal. It keeps that noise out of the returned text, and stops a large
+		// response from filling the stderr pipe while we are still draining stdout.
+		command.add("-sS");
 		command.add("--connect-timeout");
 		command.add("10");
 		command.add("--max-time");
@@ -88,13 +93,18 @@ public class NetworkUtils {
 				command.add(header);
 			}
 		}
-		if (body != null && !body.isEmpty()) {
-			command.add("--data-raw");
-			command.add(body);
+		boolean hasBody = body != null && !body.isEmpty();
+		if (hasBody) {
+			// '@-' reads the body from stdin. That keeps it clear of the operating system
+			// argument limit, which on Linux caps a single argument at 128KB, and keeps the
+			// payload out of the process list where any local process could read it.
+			command.add("--data-binary");
+			command.add("@-");
 		}
 		command.add("--"); // end of options, so a url starting with '-' is never read as a curl flag
 		command.add(url);
-		return execute(new ProcessBuilder(command));
+		ProcessBuilder pb = new ProcessBuilder(command);
+		return hasBody ? execute(pb, body) : execute(pb);
 	}
 
 	public static String testConnect(String host, String port) {
@@ -155,12 +165,26 @@ public class NetworkUtils {
 	}
 
 	private static String execute(ProcessBuilder pb) throws IOException {
+		return execute(pb, "\n");
+	}
+
+	private static String execute(ProcessBuilder pb, String stdinData) throws IOException {
 		Process p = pb.start();
 		OutputStream stdin = p.getOutputStream();
-		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(stdin));
-		writer.write("\n");
-        writer.flush();
-        writer.close();
+		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(stdin, StandardCharsets.UTF_8));
+		try {
+			writer.write(stdinData);
+			writer.flush();
+		} catch (IOException e) {
+			// A short-lived command can exit before we finish writing, which closes the
+			// pipe. Its output is what we are after, so report that rather than this.
+		} finally {
+			try {
+				writer.close();
+			} catch (IOException e) {
+				// same reason as above
+			}
+		}
 		SequenceInputStream sis = new SequenceInputStream(p.getInputStream(), p.getErrorStream());
 		java.util.Scanner s = new java.util.Scanner(sis).useDelimiter("\\A");
 		return s.hasNext() ? s.next() : "";
