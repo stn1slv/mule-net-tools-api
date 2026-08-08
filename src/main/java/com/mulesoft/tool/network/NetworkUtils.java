@@ -68,9 +68,16 @@ public class NetworkUtils {
 		command.add("-i");
 		command.add("-L");
 		// -sS silences the progress meter, which curl writes to stderr whenever stdout is
-		// not a terminal. It keeps that noise out of the returned text, and stops a large
-		// response from filling the stderr pipe while we are still draining stdout.
+		// not a terminal. It keeps that noise out of the returned text.
 		command.add("-sS");
+		// -g disables curl's URL globbing. Without it a url such as http://10.0.0.[1-254]/
+		// expands into one request per address, and --max-time bounds each transfer rather
+		// than the whole invocation, so a single call could pin this thread for hours.
+		command.add("-g");
+		// Bound the response so a large or hostile target cannot exhaust worker memory:
+		// the whole body is buffered into a String and copied again on the way out.
+		command.add("--max-filesize");
+		command.add("10485760"); // 10 MiB
 		command.add("--connect-timeout");
 		command.add("10");
 		command.add("--max-time");
@@ -83,6 +90,13 @@ public class NetworkUtils {
 		command.add(verb);
 		for (String header : headers ) {
 			if (header != null && !header.trim().isEmpty()) {
+				if (header.indexOf('\r') >= 0 || header.indexOf('\n') >= 0) {
+					// curl writes -H values into the request verbatim, so a line break lets
+					// the caller add headers of its own, or write a whole second request
+					// line, which would sidestep the method allowlist entirely. The value is
+					// deliberately not echoed back.
+					return "Header values may not contain carriage returns or line feeds.";
+				}
 				if (header.trim().startsWith("@")) {
 					// curl reads a local file when a header starts with '@' and sends every
 					// line of it as a header to the target, which would leak worker files.
@@ -180,25 +194,32 @@ public class NetworkUtils {
 		// stdout, and no amount of quietening individual commands removes that class.
 		pb.redirectErrorStream(true);
 		Process p = pb.start();
-		OutputStream stdin = p.getOutputStream();
-		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(stdin, StandardCharsets.UTF_8));
 		try {
-			writer.write(stdinData);
-			writer.flush();
-		} catch (IOException e) {
-			// A short-lived command can exit before we finish writing, which closes the
-			// pipe. Its output is what we are after, so report that rather than this.
-		} finally {
-			try {
-				writer.close();
+			try (BufferedWriter writer = new BufferedWriter(
+					new OutputStreamWriter(p.getOutputStream(), StandardCharsets.UTF_8))) {
+				writer.write(stdinData);
+				writer.flush();
 			} catch (IOException e) {
-				// same reason as above
+				// A short-lived command can exit before we finish writing, which closes the
+				// pipe. Its output is what we are after, so report that rather than this.
+			}
+			// Explicit UTF-8: Scanner would otherwise use the platform default, which on a
+			// worker with no LANG set can be US-ASCII and would mangle non-ASCII responses.
+			try (java.util.Scanner s = new java.util.Scanner(p.getInputStream(), StandardCharsets.UTF_8)
+					.useDelimiter("\\A")) {
+				return s.hasNext() ? s.next() : "";
+			}
+		} finally {
+			// Reap the child. Without this the worker accumulates defunct processes and
+			// file descriptors, which matters most for cipherTest: it spawns one openssl
+			// per cipher, so hundreds per call.
+			try {
+				p.waitFor();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			} finally {
+				p.destroy();
 			}
 		}
-		// Explicit UTF-8: Scanner would otherwise use the platform default, which on a
-		// worker with no LANG set can be US-ASCII and would mangle non-ASCII responses.
-		java.util.Scanner s = new java.util.Scanner(p.getInputStream(), StandardCharsets.UTF_8)
-				.useDelimiter("\\A");
-		return s.hasNext() ? s.next() : "";
 	}
 }
