@@ -120,7 +120,9 @@ into an HTML string**. Build the element and use `.text()`. That was a real XSS.
 ## Releasing
 
 Pushing a version tag runs `.github/workflows/release.yml`, which builds and
-opens a **draft** GitHub Release with the jar attached.
+**publishes** a GitHub Release with the jar attached. There is no draft step, so
+a pushed tag is immediately public. The workflow does not pass `--latest`; which
+release wears that label is left to GitHub.
 
 1. Bump `<version>` in `pom.xml` and commit.
 2. Tag that commit and push the tag.

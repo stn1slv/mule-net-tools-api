@@ -30,7 +30,7 @@ Builds up to the point the project was archived remain available on the [upstrea
 
 ## Cutting a release
 
-Releases are built by GitHub Actions. Pushing a version tag builds the app and opens a **draft** release with the deployable jar attached, so nothing becomes public until you review the notes and press Publish.
+Releases are built by GitHub Actions. Pushing a version tag builds the app and **publishes** a release with the deployable jar attached. The notes are generated automatically, so the tag is all it takes; edit the notes afterwards if you want to expand on them. Nothing is held back as a draft, so a pushed tag is public straight away.
 
 ```
 # 1. Bump <version> in pom.xml, then commit it

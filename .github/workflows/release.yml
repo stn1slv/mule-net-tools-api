@@ -1,8 +1,9 @@
 name: Release
 
-# Pushing a version tag builds the app and opens a draft GitHub Release with the
-# deployable jar attached. The release stays a draft so the notes can be edited
-# before anything becomes public.
+# Pushing a version tag builds the app and publishes a GitHub Release with the
+# deployable jar attached. It is published straight away rather than left as a
+# draft, so the tag alone is enough to ship. Which release carries GitHub's
+# "Latest" label is left to GitHub, which works it out from date and version.
 on:
   push:
     # Version-shaped tags only, so an unrelated tag does not produce a failed run.
@@ -66,7 +67,7 @@ jobs:
       - name: Build
         run: mvn --batch-mode clean package
 
-      - name: Create the draft release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -79,9 +80,16 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "::notice::Release $GITHUB_REF_NAME already exists; replacing the attached artifact."
             gh release upload "$GITHUB_REF_NAME" "$jar" --clobber
+            # Uploading leaves the draft flag alone, so an existing draft would
+            # stay unpublished. Clearing it keeps "a pushed tag ships" true on
+            # this path too; it is a no-op on an already published release.
+            gh release edit "$GITHUB_REF_NAME" --draft=false
           else
+            # No --draft, so the release is public as soon as the tag is pushed.
+            # --latest is deliberately not passed either: gh then leaves the
+            # "Latest" flag to GitHub, which picks it from the date and version,
+            # so a release cut from an older branch cannot displace a newer one.
             gh release create "$GITHUB_REF_NAME" \
-              --draft \
               --generate-notes \
               --title "$VERSION" \
               "$jar"
