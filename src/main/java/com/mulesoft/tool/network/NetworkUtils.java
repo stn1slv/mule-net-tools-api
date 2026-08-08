@@ -54,6 +54,7 @@ public class NetworkUtils {
 		//-k insecure
 		//-X the HTTP method sent to the target
 		//--data-raw the request body, sent verbatim ('-d' would read a local file for an '@' prefix)
+		//--proto/--proto-redir restrict curl to http and https, so 'file://' cannot read worker files
 		String verb = (method == null || method.trim().isEmpty())
 				? "GET" : method.trim().toUpperCase(Locale.ROOT);
 		if (!ALLOWED_METHODS.contains(verb)) {
@@ -70,10 +71,19 @@ public class NetworkUtils {
 		command.add("10");
 		command.add("--max-time");
 		command.add("30");
+		command.add("--proto");
+		command.add("=http,https");
+		command.add("--proto-redir");
+		command.add("=http,https");
 		command.add("-X");
 		command.add(verb);
 		for (String header : headers ) {
 			if (header != null && !header.trim().isEmpty()) {
+				if (header.trim().startsWith("@")) {
+					// curl reads a local file when a header starts with '@' and sends every
+					// line of it as a header to the target, which would leak worker files.
+					return "Header values starting with '@' are not allowed: " + header;
+				}
 				command.add("-H");
 				command.add(header);
 			}

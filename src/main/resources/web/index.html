@@ -295,7 +295,7 @@
                     // request body; an empty one keeps the GET endpoint. Either way the verb
                     // sent to the target comes from the method parameter.
                     var ajaxOptions = { url: apiurl };
-                    if (body) {
+                    if (body.trim()) {
                         ajaxOptions.method = 'POST';
                         ajaxOptions.contentType = 'text/plain';
                         ajaxOptions.data = body;

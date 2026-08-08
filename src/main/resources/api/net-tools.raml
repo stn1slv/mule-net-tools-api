@@ -6,6 +6,31 @@ securitySchemes:
   basic:
     type: Basic Authentication
 
+traits:
+  curlParams:
+    queryParameters:
+      url:
+        description: Target URL. Only http and https are allowed.
+        type: string
+      method:
+        description: HTTP method to send to the target
+        type: string
+        required: false
+        default: GET
+        enum: [GET, POST, PUT, PATCH, DELETE]
+      header:
+        description: A name:value header for the target request. Repeat for multiple headers.
+        required: false
+        items:
+          type: string
+          example: |
+            Content-Type:application/json
+      insecure:
+        description: Skip TLS certificate verification
+        type: boolean
+        required: false
+        default: false
+
 /ping:
   get:
     description: Runs an ICMP test from the Mule host to the specified endpoint
@@ -87,27 +112,7 @@ securitySchemes:
 /curl:
   get:
     description: Runs a curl from the Mule host to the specified resource
-    queryParameters:
-      url:
-        description: Target URL
-        type: string
-      method:
-        description: HTTP method to send to the target
-        type: string
-        required: false
-        default: GET
-        enum: [GET, POST, PUT, PATCH, DELETE]
-      header:
-        required: false
-        items:
-          type: string
-          example: |
-            Authorization:Basic YQxhZGRpbjpvcGVuc2VzYW1l
-      insecure:
-        description: Skip TLS certificate verification
-        type: boolean
-        required: false
-        default: false
+    is: [curlParams]
     responses:
       200:
         body:
@@ -119,27 +124,7 @@ securitySchemes:
       Runs a curl with a request body from the Mule host to the specified resource.
       The Content-Type the target receives is set through the header query parameter
       and is independent of the content type used to call this API.
-    queryParameters:
-      url:
-        description: Target URL
-        type: string
-      method:
-        description: HTTP method to send to the target
-        type: string
-        required: false
-        default: GET
-        enum: [GET, POST, PUT, PATCH, DELETE]
-      header:
-        required: false
-        items:
-          type: string
-          example: |
-            Content-Type:application/json
-      insecure:
-        description: Skip TLS certificate verification
-        type: boolean
-        required: false
-        default: false
+    is: [curlParams]
     body:
       application/json:
       application/xml:
