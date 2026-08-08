@@ -1,5 +1,7 @@
 # Net Tools API
 
+> This repository continues the development of [mulesoft-labs/net-tools-api](https://github.com/mulesoft-labs/net-tools-api), which its owner archived on 4 May 2024 and which is now read-only. Work carries on here: new features, fixes and releases are published in this repository, not the upstream one.
+
 The Net Tools API is a deployable Mule app that you can deploy to CloudHub or any worker cloud. The app will then expose a very simple UI that will allow you to do basic networking commands. The idea is that most networking related issues with your CloudHub VPC and VPN are related to connectivity to your on-prem systems, and most of those issues end up being resolved on the customer end. If you have this tool available to you, you can work with your Networking team to test connectivity to various on-prem systems and verify that firewall and routing rules are working.  It can also be used to generate some traffic that can help with diagnosing networking issues.
 
 This supports HTTP and HTTPS connections with a configurable port for each.
@@ -16,7 +18,9 @@ This supports HTTP and HTTPS connections with a configurable port for each.
 
 ## Latest build
 
-Latest build can be found here: https://github.com/mulesoft-labs/net-tools-api/releases
+Latest build can be found here: https://github.com/stn1slv/mulesoft-net-tools-api/releases
+
+Builds up to the point the project was archived remain available on the [upstream releases page](https://github.com/mulesoft-labs/net-tools-api/releases), which no longer receives updates.
 
 # Usage
 
