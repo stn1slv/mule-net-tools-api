@@ -3,7 +3,6 @@ package com.mulesoft.tool.network;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.io.SequenceInputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -176,6 +175,10 @@ public class NetworkUtils {
 	}
 
 	private static String execute(ProcessBuilder pb, String stdinData) throws IOException {
+		// Merge stderr into stdout at the OS level. Reading them as two separate streams
+		// deadlocks whenever a command fills the stderr pipe while we are still draining
+		// stdout, and no amount of quietening individual commands removes that class.
+		pb.redirectErrorStream(true);
 		Process p = pb.start();
 		OutputStream stdin = p.getOutputStream();
 		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(stdin, StandardCharsets.UTF_8));
@@ -192,8 +195,10 @@ public class NetworkUtils {
 				// same reason as above
 			}
 		}
-		SequenceInputStream sis = new SequenceInputStream(p.getInputStream(), p.getErrorStream());
-		java.util.Scanner s = new java.util.Scanner(sis).useDelimiter("\\A");
+		// Explicit UTF-8: Scanner would otherwise use the platform default, which on a
+		// worker with no LANG set can be US-ASCII and would mangle non-ASCII responses.
+		java.util.Scanner s = new java.util.Scanner(p.getInputStream(), StandardCharsets.UTF_8)
+				.useDelimiter("\\A");
 		return s.hasNext() ? s.next() : "";
 	}
 }
