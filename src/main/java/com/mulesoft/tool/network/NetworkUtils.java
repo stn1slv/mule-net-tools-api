@@ -9,12 +9,17 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.BufferedWriter;
 
 public class NetworkUtils {
+
+	private static final List<String> ALLOWED_METHODS =
+			Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE");
 
 	public static String ping(String host) throws Exception {
 		return execute(new ProcessBuilder("ping", "-c", "4", host));
@@ -43,21 +48,42 @@ public class NetworkUtils {
 		}
 	}
 
-	public static String curl(String url, String[] headers, Boolean insecure) throws IOException {
+	public static String curl(String url, String method, String body, String[] headers, Boolean insecure) throws IOException {
 		//-i include protocol headers
 		//-L follow redirects
 		//-k insecure
-		//-E cert status
+		//-X the HTTP method sent to the target
+		//--data-raw the request body, sent verbatim ('-d' would read a local file for an '@' prefix)
+		String verb = (method == null || method.trim().isEmpty())
+				? "GET" : method.trim().toUpperCase(Locale.ROOT);
+		if (!ALLOWED_METHODS.contains(verb)) {
+			return "Unsupported HTTP method: " + method
+					+ ". Allowed methods: " + String.join(", ", ALLOWED_METHODS);
+		}
+
 		List<String> command = new ArrayList<String>();
 		command.add("curl");
-		if(insecure) command.add("-k");
+		if(insecure != null && insecure) command.add("-k");
 		command.add("-i");
 		command.add("-L");
-		command.add(url);
+		command.add("--connect-timeout");
+		command.add("10");
+		command.add("--max-time");
+		command.add("30");
+		command.add("-X");
+		command.add(verb);
 		for (String header : headers ) {
-			command.add("-H");
-			command.add(header);
-		}		
+			if (header != null && !header.trim().isEmpty()) {
+				command.add("-H");
+				command.add(header);
+			}
+		}
+		if (body != null && !body.isEmpty()) {
+			command.add("--data-raw");
+			command.add(body);
+		}
+		command.add("--"); // end of options, so a url starting with '-' is never read as a curl flag
+		command.add(url);
 		return execute(new ProcessBuilder(command));
 	}
 

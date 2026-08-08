@@ -90,19 +90,66 @@ securitySchemes:
     queryParameters:
       url:
         description: Target URL
-        type: string 
+        type: string
+      method:
+        description: HTTP method to send to the target
+        type: string
+        required: false
+        default: GET
+        enum: [GET, POST, PUT, PATCH, DELETE]
       header:
         required: false
         items:
           type: string
           example: |
             Authorization:Basic YQxhZGRpbjpvcGVuc2VzYW1l
-    responses: 
+      insecure:
+        description: Skip TLS certificate verification
+        type: boolean
+        required: false
+        default: false
+    responses:
       200:
-        body: 
+        body:
           text/plain:
             example: |
-              curl: (7) Failed to connect to 10.200.27.15 port 443: Timed out             
+              curl: (7) Failed to connect to 10.200.27.15 port 443: Timed out
+  post:
+    description: |
+      Runs a curl with a request body from the Mule host to the specified resource.
+      The Content-Type the target receives is set through the header query parameter
+      and is independent of the content type used to call this API.
+    queryParameters:
+      url:
+        description: Target URL
+        type: string
+      method:
+        description: HTTP method to send to the target
+        type: string
+        required: false
+        default: GET
+        enum: [GET, POST, PUT, PATCH, DELETE]
+      header:
+        required: false
+        items:
+          type: string
+          example: |
+            Content-Type:application/json
+      insecure:
+        description: Skip TLS certificate verification
+        type: boolean
+        required: false
+        default: false
+    body:
+      application/json:
+      application/xml:
+      text/plain:
+    responses:
+      200:
+        body:
+          text/plain:
+            example: |
+              HTTP/1.1 201 Created
 
 /ciphertest:
   get:

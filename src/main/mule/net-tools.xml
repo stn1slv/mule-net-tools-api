@@ -152,16 +152,37 @@ output application/json
         </error-handler>
     </flow>
 	<flow name="get:\curl:net-tools-config">
-		<ee:transform doc:name="Transform Message" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6" >
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<flow name="post:\curl:application\json:net-tools-config">
+		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "application/json")]' doc:name="Set body" />
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<flow name="post:\curl:application\xml:net-tools-config">
+		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "application/xml")]' doc:name="Set body" />
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<flow name="post:\curl:text\plain:net-tools-config">
+		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "text/plain")]' doc:name="Set body" />
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<sub-flow name="curl-request">
+		<ee:transform doc:name="Run curl" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6" >
 			<ee:message >
 				<ee:set-payload ><![CDATA[%dw 2.0
 output application/java
 import java!com::mulesoft::tool::network::NetworkUtils
 ---
-NetworkUtils::curl(attributes.queryParams.url, attributes.queryParams.*header default [], attributes.queryParams.insecure as Boolean)]]></ee:set-payload>
+NetworkUtils::curl(
+  attributes.queryParams.url,
+  attributes.queryParams.method default "GET",
+  vars.curlBody default "",
+  attributes.queryParams.*header default [],
+  (attributes.queryParams.insecure default "false") as Boolean
+)]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>
-    </flow>
+    </sub-flow>
     <flow name="get:\dns:net-tools-config">
         <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" doc:id="2eb37294-21d7-412a-8ab6-8da73008b111">
             <ee:message>

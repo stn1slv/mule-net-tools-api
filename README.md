@@ -10,7 +10,7 @@ This supports HTTP and HTTPS connections with a configurable port for each.
 - Ping
 - TraceRoute
 - Opening a TCP socket
-- Simple curl request
+- curl request with GET, POST, PUT, PATCH or DELETE, and an optional request body
 - Pull SSL certificates
 - Check supported ciphers for a given SSL/TLS endpoint
 
@@ -26,6 +26,43 @@ The UI can be accessed by using the base URL for the app.  The options are liste
 - Dedicated Load Balancer: `custom url`.  See *Configuration* section to update settings.
 
 The UI is protected by Basic Authentication, and the default credentials are listed in the *Configuration* section.
+
+## curl requests
+
+The curl tool sends `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. Any other value for the `method` parameter is rejected with a `400 Bad Request`.
+
+In the UI, pick the method from the dropdown next to the URL field and type the payload in the *request body* box. Leaving the body empty sends a request without a payload.
+
+The API can also be called directly. Without a body, use the `GET` endpoint:
+
+```
+curl -u vpc-tools:SomePass \
+  'http://{app-name}.{region}.cloudhub.io/api/curl?url=https://internal.example.com/health&method=GET'
+```
+
+With a body, `POST` to the same path. The payload is sent in the request body:
+
+```
+curl -u vpc-tools:SomePass -X POST \
+  -H 'Content-Type: text/plain' \
+  --data-raw '{"id": 1}' \
+  'http://{app-name}.{region}.cloudhub.io/api/curl?url=https://internal.example.com/orders&method=POST&header=Content-Type:application/json'
+```
+
+Query parameters for both endpoints:
+
+- `url`: the target URL. Required.
+- `method`: the HTTP method sent to the target. Defaults to `GET` when omitted, on both endpoints. Set it explicitly to `POST` when sending a body, otherwise the payload is attached to a GET request, which most servers ignore.
+- `header`: a `name:value` header for the target request. Repeat the parameter for multiple headers.
+- `insecure`: `true` skips TLS certificate verification (curl's `-k`). Defaults to `false`.
+
+Things worth knowing:
+
+- **The `Content-Type` the target receives comes from the `header` parameter**, not from the content type used to call this API. This is what lets you send a SOAP envelope (`header=Content-Type:text/xml`), a form post (`header=Content-Type:application/x-www-form-urlencoded`) or anything else.
+- **The POST endpoint accepts `application/json`, `application/xml` and `text/plain`.** JSON and XML bodies are parsed and re-serialised on the way through, so exact whitespace is not preserved and a malformed payload is rejected before it reaches curl. To send a payload byte for byte, including a deliberately malformed one, call the API with `Content-Type: text/plain`. The UI always uses `text/plain`.
+- **Requests time out.** curl runs with `--connect-timeout 10` and `--max-time 30`, so a blackholed host fails within about 30 seconds instead of holding a worker thread open.
+- **Redirects are followed** (curl's `-L`). curl converts a `POST` to a `GET` on a 301, 302 or 303 response, so a redirected POST arrives at the final host as a GET.
+- The request body is never placed in the URL, so it does not appear in the application log. Header values passed through `header` are part of the query string and *are* logged.
 
 # Configuration
 The properties below can be set on the app to override the default settings.  The proper ports must be set to accommodate load balancer and VPC firewall rule settings.  The default settings are for the CloudHub shared load balancer HTTP endpoint.

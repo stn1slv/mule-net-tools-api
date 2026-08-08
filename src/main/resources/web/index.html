@@ -149,9 +149,17 @@
                 </select>
                 <input name="ip" placeholder="IP Address or Host" type="text" title="IP" id="ip" />
                 <input name="port" placeholder="Port" type="text" title="PORT" id="port" />
+                <select name="method" id="method">
+                    <option value="GET" selected>GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                </select>
                 <input name="url" placeholder="http://host:port/path/" type="text" title="URL" id="url" />
                 <input name="insecure" type="checkbox" title="insecure" id="insecure" checked="true" /><span class="helpBox" id="insecure_label">insecure</span>
                 <textarea name="headers" placeholder="header-name:header-value" title="Headers" id="headers" rows="3" cols="50" style="display: block"></textarea>
+                <textarea name="body" placeholder="request body" title="Body" id="body" rows="5" cols="50" style="display: block"></textarea>
                 <input name="dnsServer" placeholder="dns server" type="text" title="DNS SERVER" id="dnsServer" />
                 <button type="button" id="check">Run</button>
                 <button type="button" id="clean">Clean Console</button>
@@ -162,7 +170,7 @@
 			  <div class="helpBox" id="tracerouteHelp" style="display: none;">Set an IP Address or Hostname and hit Run</div>	
               <div class="helpBox" id="socketHelp" style="display: none;">Set an IP Address or Hostname, the Port and hit Run</div>	
 			  <div class="helpBox" id="dnsHelp" style="display: none;">Set a Hostname and hit Run</div>	
-			  <div class="helpBox" id="curlHelp" style="display: none;">Set an IP Address or Schema (http-https://) plus Hostname, the Port, the Path, the Headers (multi-line) and hit Run</div>	
+			  <div class="helpBox" id="curlHelp" style="display: none;">Pick the HTTP method, set an IP Address or Schema (http-https://) plus Hostname, the Port, the Path, the Headers (multi-line) and, for POST/PUT/PATCH, the request Body, then hit Run. <br/>Note: the Content-Type the target receives comes from the Headers box, for example <code>Content-Type:application/json</code>.</div>
 			</div>
             <pre id="output">
             </pre>
@@ -193,6 +201,7 @@
                     inputs.hide();
                     var textareas = $("#theForm textarea").removeClass();
                     textareas.hide();
+                    $("#method").hide();
                     var helps = $(".helpBox");
                     helps.hide();
                     switch (operation) {
@@ -225,9 +234,11 @@
                         $("#dnsHelp").show();
                         break;
                       case "curl":
+                        $("#method").show();
                         $("#url").show();
                         $("#curlHelp").show();
                         $("#headers").show();
+                        $("#body").show();
                         $("#insecure").show();
                         $("#insecure_label").show();
                         break;
@@ -268,19 +279,31 @@
                     if (operation === 'dns') {
                         apiurl += '&dnsServer=' + dnsServer;
                     }
+                    var method = (operation === 'curl') ? $("#method").val() : '';
+                    var body = (operation === 'curl') ? $("#body").val() : '';
                     if (operation === 'curl') {
-                        apiurl += '&url=' + encodeURI(url);
+                        apiurl += '&url=' + encodeURIComponent(url);
+                        apiurl += '&method=' + method;
                         apiurl += '&insecure=' + $("#insecure").prop('checked');
                         for (let h of $("#headers").val().split('\n')) {
-                        	apiurl += '&header=' + encodeURI(h);
+                            if (h.trim()) {
+                                apiurl += '&header=' + encodeURIComponent(h);
+                            }
                         }
                     }
-                    console.log(operation + " " + ip + " " + port + " " + url );
+                    // A non-empty body goes to POST /api/curl so the payload travels in the
+                    // request body; an empty one keeps the GET endpoint. Either way the verb
+                    // sent to the target comes from the method parameter.
+                    var ajaxOptions = { url: apiurl };
+                    if (body) {
+                        ajaxOptions.method = 'POST';
+                        ajaxOptions.contentType = 'text/plain';
+                        ajaxOptions.data = body;
+                    }
+                    console.log(operation + " " + method + " " + ip + " " + port + " " + url );
                     $("#check").attr("disabled", true);
-                    $("#output").append('<pre class="command">&gt; ' + operation + ' ' + ip + ' ' + port + ' ' + url + '</pre>');
-                    $.ajax({
-                        url: apiurl
-                    })
+                    $("#output").append('<pre class="command">&gt; ' + operation + ' ' + method + ' ' + ip + ' ' + port + ' ' + url + '</pre>');
+                    $.ajax(ajaxOptions)
                     .done(function(result) {
                         if (operation === 'curl') {
                         	$("#output").append('<textarea class="output">' + result + '</textarea>');
