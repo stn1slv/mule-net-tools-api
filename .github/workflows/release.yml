@@ -1,0 +1,65 @@
+name: Release
+
+# Pushing a version tag builds the app and opens a draft GitHub Release with the
+# deployable jar attached. The release stays a draft so the notes can be edited
+# before anything becomes public.
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write # required to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          # --generate-notes needs the previous tags to work out what changed.
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # Runs before the build so a mistyped tag fails in seconds rather than
+      # after a full package. A leading "v" is tolerated because the tag history
+      # mixes both conventions (v2.4.0 and 2.5.0).
+      - name: Check the tag matches the pom version
+        id: version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pom=$(python3 -c "import xml.etree.ElementTree as ET; \
+            ns={'m':'http://maven.apache.org/POM/4.0.0'}; \
+            print(ET.parse('pom.xml').getroot().find('m:version', ns).text)")
+          echo "tag=$tag pom=$pom"
+          if [ "$tag" != "$pom" ]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' does not match the pom version '$pom'. Bump the pom or fix the tag."
+            exit 1
+          fi
+          echo "version=$pom" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: mvn --batch-mode clean package
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          jar="target/net-tools-api-${VERSION}-mule-application.jar"
+          test -f "$jar" || { echo "::error::Expected artifact not found: $jar"; exit 1; }
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --generate-notes \
+            --title "$VERSION" \
+            "$jar"
