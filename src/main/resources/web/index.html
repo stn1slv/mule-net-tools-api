@@ -158,7 +158,7 @@
                     <option value="DELETE">DELETE</option>
                 </select>
                 <input name="url" placeholder="http://host:port/path/" type="text" title="URL" id="url" />
-                <input name="insecure" type="checkbox" title="insecure" id="insecure" checked="true" /><span class="helpBox" id="insecure_label">insecure</span>
+                <input name="insecure" type="checkbox" title="insecure" id="insecure" /><span class="helpBox" id="insecure_label">insecure</span>
                 <textarea name="headers" placeholder="header-name:header-value" title="Headers" id="headers" rows="3" cols="50" style="display: block"></textarea>
                 <textarea name="body" placeholder="request body" title="Body" id="body" rows="5" cols="50" style="display: block"></textarea>
                 <input name="dnsServer" placeholder="dns server" type="text" title="DNS SERVER" id="dnsServer" />
@@ -279,25 +279,31 @@
                         console.error('Missing url!');
                         return;
                     }
-                    var apiurl = 'api/' + operation + '?host=' + ip;
-                    if (operation === 'socket' || operation === 'certest' || operation === 'ciphertest') {
-                        apiurl += '&port=' + port;
-                    }
-                    if (operation === 'dns') {
-                        apiurl += '&dnsServer=' + dnsServer;
-                    }
                     var method = (operation === 'curl') ? $("#method").val() : '';
                     var body = (operation === 'curl') ? $("#body").val() : '';
+                    // Only send the parameters each endpoint actually declares. curl takes a
+                    // url rather than a host, and diagnostics takes nothing at all.
+                    var params = [];
+                    if (operation !== 'curl' && operation !== 'diagnostics') {
+                        params.push('host=' + encodeURIComponent(ip));
+                    }
+                    if (operation === 'socket' || operation === 'certest' || operation === 'ciphertest') {
+                        params.push('port=' + encodeURIComponent(port));
+                    }
+                    if (operation === 'dns') {
+                        params.push('dnsServer=' + encodeURIComponent(dnsServer));
+                    }
                     if (operation === 'curl') {
-                        apiurl += '&url=' + encodeURIComponent(url);
-                        apiurl += '&method=' + method;
-                        apiurl += '&insecure=' + $("#insecure").prop('checked');
+                        params.push('url=' + encodeURIComponent(url));
+                        params.push('method=' + method);
+                        params.push('insecure=' + $("#insecure").prop('checked'));
                         for (let h of $("#headers").val().split('\n')) {
                             if (h.trim()) {
-                                apiurl += '&header=' + encodeURIComponent(h);
+                                params.push('header=' + encodeURIComponent(h));
                             }
                         }
                     }
+                    var apiurl = 'api/' + operation + (params.length ? '?' + params.join('&') : '');
                     // A non-empty body goes to POST /api/curl so the payload travels in the
                     // request body; an empty one keeps the GET endpoint. Either way the verb
                     // sent to the target comes from the method parameter.
