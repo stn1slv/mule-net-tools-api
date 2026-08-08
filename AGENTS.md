@@ -127,5 +127,26 @@ what gates deployment.
 
 - Conventional Commits, with a body explaining *why* for anything non-trivial.
 - Git and GitHub write operations need explicit approval from the maintainer.
-- The remote was renamed to `stn1slv/mule-net-tools-api`; `upstream` is the
-  archived `mulesoft-labs/net-tools-api`, which is read-only.
+
+### Pull requests go to this fork, never upstream
+
+This repository is a **fork** of the archived `mulesoft-labs/net-tools-api`, so
+`gh pr create` defaults to opening the pull request **against the parent**. That
+is always wrong here: the parent was archived on 4 May 2024 and is read-only.
+
+Always target this repository explicitly:
+
+```
+gh pr create --repo stn1slv/mule-net-tools-api --base master --head <branch>
+```
+
+Then confirm it landed where you meant, because the failure is silent:
+
+```
+gh pr view <n> --repo stn1slv/mule-net-tools-api --json baseRefName,url
+```
+
+The same applies to `gh issue`, `gh release` and any other `gh` command that
+resolves a default repository. `origin` is `stn1slv/mule-net-tools-api` (renamed
+from `mulesoft-net-tools-api`, so old URLs still redirect); `upstream` is the
+archived parent.
