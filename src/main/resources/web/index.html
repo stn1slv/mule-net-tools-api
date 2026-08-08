@@ -158,6 +158,14 @@
                     <option value="DELETE">DELETE</option>
                 </select>
                 <input name="url" placeholder="http://host:port/path/" type="text" title="URL" id="url" />
+                <input name="authUser" placeholder="user:password (or token for bearer)" type="text" title="Credentials" id="authUser" />
+                <select name="authType" id="authType">
+                    <option value="basic" selected>basic</option>
+                    <option value="digest">digest</option>
+                    <option value="ntlm">ntlm</option>
+                    <option value="negotiate">negotiate</option>
+                    <option value="bearer">bearer</option>
+                </select>
                 <input name="insecure" type="checkbox" title="insecure" id="insecure" /><span class="helpBox" id="insecure_label">insecure</span>
                 <textarea name="headers" placeholder="header-name:header-value" title="Headers" id="headers" rows="3" cols="50" style="display: block"></textarea>
                 <textarea name="body" placeholder="request body" title="Body" id="body" rows="5" cols="50" style="display: block"></textarea>
@@ -204,6 +212,7 @@
                     var textareas = $("#theForm textarea").removeClass();
                     textareas.hide();
                     $("#method").hide();
+                    $("#authType").hide();
                     var helps = $(".helpBox");
                     helps.hide();
                     switch (operation) {
@@ -244,6 +253,8 @@
                         $("#curlHelp").show();
                         $("#headers").show();
                         $("#body").show();
+                        $("#authUser").show();
+                        $("#authType").show();
                         $("#insecure").show();
                         $("#insecure_label").show();
                         break;
@@ -297,6 +308,11 @@
                         params.push('url=' + encodeURIComponent(url));
                         params.push('method=' + method);
                         params.push('insecure=' + $("#insecure").prop('checked'));
+                        // Only sent when filled in, so an empty box does not turn on auth.
+                        if ($("#authUser").val().trim()) {
+                            params.push('user=' + encodeURIComponent($("#authUser").val().trim()));
+                            params.push('authType=' + $("#authType").val());
+                        }
                         for (let h of $("#headers").val().split('\n')) {
                             if (h.trim()) {
                                 params.push('header=' + encodeURIComponent(h));

@@ -179,7 +179,28 @@ Query parameters for both endpoints:
 
 - `url`: the target URL. Required. Must be `http` or `https`.
 - `method`: the HTTP method sent to the target. Defaults to `GET` when omitted, on both endpoints. Set it explicitly to `POST` when sending a body, otherwise the payload is attached to a GET request, which most servers ignore.
-- `header`: a `name:value` header for the target request. Repeat the parameter for multiple headers.
+- `header`: a `name:value` header for the target request. Repeat the parameter for multiple headers. Use this for API keys and any custom scheme.
+- `user`: credentials for the target. `user:password` for `basic`, `digest`, `ntlm` and `negotiate`; the token on its own for `bearer`.
+- `authType`: which scheme to use with `user`. One of `basic`, `digest`, `ntlm`, `negotiate`, `bearer`. Defaults to `basic`, and is ignored when `user` is absent.
+
+### Authenticating to the target
+
+```
+# basic
+&user=alice:secret&authType=basic
+
+# bearer token
+&user=eyJhbGciOiJIUzI1NiJ9...&authType=bearer
+
+# NTLM, typical for IIS and SharePoint
+&user=DOMAIN\alice:secret&authType=ntlm
+```
+
+`digest`, `ntlm` and `negotiate` **cannot** be done with a header, because curl has to answer a `401` challenge and compute a reply, so `authType` is the only way to use them. `basic` and `bearer` can be done either way; pick whichever you find clearer.
+
+Two practical notes. A `user` value with no colon would make curl wait for a password on a terminal that does not exist here, so a trailing colon is added for you and the password is treated as empty. And `negotiate` additionally needs a Kerberos credential cache on the worker, which a CloudHub worker does not normally have, so expect it to fail there even though curl supports it. Check `/api/diagnostics` to confirm the worker's curl advertises `GSS-API`, `Kerberos`, `NTLM` and `SPNEGO`.
+
+Credentials sent either way stay out of the application log, which records only the method and path. They are still part of the request URL, so a proxy or load balancer in front of the app that logs full URLs would record them, as would your browser history when using the UI.
 - `insecure`: `true` skips TLS certificate verification (curl's `-k`). Defaults to `false`, and the UI checkbox is unticked to match, so certificates are verified unless you deliberately turn that off.
 
 **On encoding:** the body is re-encoded as UTF-8 before it reaches the target. A payload sent in another charset, such as `text/plain; charset=ISO-8859-1`, therefore arrives as UTF-8 even though a `header=Content-Type:...;charset=ISO-8859-1` you set says otherwise, and binary payloads are not preserved. This tool is for text.

@@ -187,7 +187,9 @@ NetworkUtils::curl(
   attributes.queryParams.method default "GET",
   vars.curlBody default "",
   attributes.queryParams.*header default [],
-  (attributes.queryParams.insecure default "false") as Boolean
+  (attributes.queryParams.insecure default "false") as Boolean,
+  attributes.queryParams.user default "",
+  attributes.queryParams.authType default "basic"
 )]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>

@@ -21,6 +21,13 @@ public class NetworkUtils {
 	private static final List<String> ALLOWED_METHODS =
 			Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE");
 
+	// BASIC, DIGEST, NTLM and NEGOTIATE need curl to answer a 401 challenge, so they
+	// cannot be expressed as a fixed header. BEARER can, and remains available through the
+	// header parameter, but is offered here too so callers have one consistent place to
+	// put credentials. For BEARER the credential is the token, not user:password.
+	private static final List<String> ALLOWED_AUTH_TYPES =
+			Arrays.asList("BASIC", "DIGEST", "NTLM", "NEGOTIATE", "BEARER");
+
 	public static String ping(String host) throws Exception {
 		return execute(new ProcessBuilder("ping", "-c", "4", host));
 	}
@@ -48,7 +55,8 @@ public class NetworkUtils {
 		}
 	}
 
-	public static String curl(String url, String method, String body, String[] headers, Boolean insecure) throws IOException {
+	public static String curl(String url, String method, String body, String[] headers, Boolean insecure,
+			String user, String authType) throws IOException {
 		//-i include protocol headers
 		//-L follow redirects
 		//-k insecure
@@ -88,6 +96,30 @@ public class NetworkUtils {
 		command.add("=http,https");
 		command.add("-X");
 		command.add(verb);
+		if (user != null && !user.trim().isEmpty()) {
+			if (user.indexOf('\r') >= 0 || user.indexOf('\n') >= 0) {
+				return "Credentials may not contain carriage returns or line feeds.";
+			}
+			String scheme = (authType == null || authType.trim().isEmpty())
+					? "BASIC" : authType.trim().toUpperCase(Locale.ROOT);
+			if (!ALLOWED_AUTH_TYPES.contains(scheme)) {
+				return "Unsupported authentication type: " + authType + ". Allowed types: "
+						+ String.join(", ", ALLOWED_AUTH_TYPES).toLowerCase(Locale.ROOT);
+			}
+			if ("BEARER".equals(scheme)) {
+				// The credential is the token itself; curl turns it into an Authorization
+				// header rather than answering a challenge.
+				command.add("--oauth2-bearer");
+				command.add(user.trim());
+			} else {
+				command.add("--" + scheme.toLowerCase(Locale.ROOT));
+				command.add("-u");
+				// curl prompts for a password when the value carries no colon, and stdin here
+				// is a pipe rather than a terminal, so an omitted password would hang or eat
+				// the request body. A trailing colon means "empty password" and keeps it going.
+				command.add(user.indexOf(':') >= 0 ? user : user + ":");
+			}
+		}
 		for (String header : headers ) {
 			if (header != null && !header.trim().isEmpty()) {
 				if (header.indexOf('\r') >= 0 || header.indexOf('\n') >= 0) {

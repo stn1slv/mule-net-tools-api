@@ -30,6 +30,19 @@ traits:
         type: boolean
         required: false
         default: false
+      user:
+        description: |
+          Credentials for the target. For basic, digest, ntlm and negotiate this is
+          user:password; for bearer it is the token on its own.
+        type: string
+        required: false
+        example: alice:secret
+      authType:
+        description: Authentication scheme to use with user. Ignored when user is absent.
+        type: string
+        required: false
+        default: basic
+        enum: [basic, digest, ntlm, negotiate, bearer]
 
 /ping:
   get:
