@@ -80,9 +80,14 @@ service. Treat access to this app as equivalent to access to the worker's
 network. Do not describe local disclosure as "closed" in documentation.
 
 **Do not log the query string.** Target headers, including `Authorization`, are
-passed as query parameters. The endpoint logger deliberately records
-`attributes.requestPath`, not `attributes.requestUri`, to keep credentials out
-of the application log.
+passed as query parameters, so `attributes.requestUri` would write credentials
+into the application log.
+
+The logger records `attributes.rawRequestPath`. Two things are deliberate there:
+not the URI, to keep the query string out, and *raw* rather than `requestPath`
+because the latter is URL-decoded, so `/api/%0aINFO%20forged` would decode into a
+real newline and let a caller forge log entries. `rawRequestPath` is the path as
+received and needs HTTP connector 1.5.0 or later.
 
 ## APIkit flows
 

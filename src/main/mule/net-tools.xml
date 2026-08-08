@@ -66,12 +66,17 @@ http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/
 			</http:error-response>
 		</http:listener>
 		<http:basic-security-filter doc:name="Basic security filter" realm="mule" />
-		<!-- requestPath, not requestUri: the query string carries the header parameter, so
-		     logging it would write Authorization values and any credentials embedded in the
-		     target url straight into the application log. The trade-off is that the log no
-		     longer records which target was probed. -->
+		<!-- Not requestUri: the query string carries the header parameter, so logging it
+		     would write Authorization values and any credentials embedded in the target url
+		     straight into the application log. The trade-off is that the log no longer
+		     records which target was probed.
+
+		     rawRequestPath rather than requestPath, because requestPath is URL-decoded, so
+		     a request to /api/%0aINFO%20forged would decode into a real newline and let the
+		     caller write a forged line into the log. rawRequestPath is the path encoded as
+		     received (HTTP connector 1.5.0 and later), so %0a stays literal. -->
 		<logger level="INFO"
-			message='#["$(attributes.scheme default "") $(attributes.method default "") $(attributes.requestPath default "")"]'
+			message='#["$(attributes.scheme default "") $(attributes.method default "") $(attributes.rawRequestPath default "")"]'
 			doc:name="Log Endpoint" />
 		<apikit:router config-ref="net-tools-config" />
         <error-handler>
