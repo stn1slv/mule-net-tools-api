@@ -302,14 +302,17 @@
                     }
                     console.log(operation + " " + method + " " + ip + " " + port + " " + url );
                     $("#check").attr("disabled", true);
-                    $("#output").append('<pre class="command">&gt; ' + operation + ' ' + method + ' ' + ip + ' ' + port + ' ' + url + '</pre>');
+                    var echoed = [operation, method, ip, port, url].filter(Boolean).join(' ');
+                    $("#output").append($('<pre class="command"></pre>').text('> ' + echoed));
                     $.ajax(ajaxOptions)
                     .done(function(result) {
-                        if (operation === 'curl') {
-                        	$("#output").append('<textarea class="output">' + result + '</textarea>');
-                        } else {
-                        	$("#output").append('<pre class="output">' + result + '</pre>');
-                        }
+                        // Build the element and set its text, rather than concatenating the
+                        // response into HTML. The response comes from an arbitrary target
+                        // host, so a body containing markup would otherwise run as script.
+                        var out = (operation === 'curl')
+                            ? $('<textarea class="output"></textarea>')
+                            : $('<pre class="output"></pre>');
+                        $("#output").append(out.text(result));
                     })
                     .fail(function() {
                         toastr["error"]("Couldn't complete request", "Error during invocation")
