@@ -10,7 +10,7 @@ This supports HTTP and HTTPS connections with a configurable port for each.
 
 This version requires **Mule runtime 4.9 or later, running on Java 17**. Mule 4.9 does not run on Java 11, so this is a single combination rather than a choice.
 
-If you need to deploy to a worker running Mule 4.4, 4.6 or 4.8, use release [2.5.1](https://github.com/stn1slv/mulesoft-net-tools-api/releases/tag/2.5.1) or earlier, which targets Mule 4.1.3 and above.
+If you need to deploy to a worker running Mule 4.4, 4.6 or 4.8, use release [2.5.1](https://github.com/stn1slv/mule-net-tools-api/releases/tag/2.5.1) or earlier, which targets Mule 4.1.3 and above.
 
 ## Features
 
@@ -24,7 +24,7 @@ If you need to deploy to a worker running Mule 4.4, 4.6 or 4.8, use release [2.5
 
 ## Latest build
 
-Latest build can be found here: https://github.com/stn1slv/mulesoft-net-tools-api/releases
+Latest build can be found here: https://github.com/stn1slv/mule-net-tools-api/releases
 
 Builds up to the point the project was archived remain available on the [upstream releases page](https://github.com/mulesoft-labs/net-tools-api/releases), which no longer receives updates.
 
