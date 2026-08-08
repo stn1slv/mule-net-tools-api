@@ -66,8 +66,17 @@ http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/
 			</http:error-response>
 		</http:listener>
 		<http:basic-security-filter doc:name="Basic security filter" realm="mule" />
+		<!-- Not requestUri: the query string carries the header parameter, so logging it
+		     would write Authorization values and any credentials embedded in the target url
+		     straight into the application log. The trade-off is that the log no longer
+		     records which target was probed.
+
+		     rawRequestPath rather than requestPath, because requestPath is URL-decoded, so
+		     a request to /api/%0aINFO%20forged would decode into a real newline and let the
+		     caller write a forged line into the log. rawRequestPath is the path encoded as
+		     received (HTTP connector 1.5.0 and later), so %0a stays literal. -->
 		<logger level="INFO"
-			message='#["$(attributes.scheme default "") $(attributes.method default "") $(attributes.requestUri default "")"]'
+			message='#["$(attributes.scheme default "") $(attributes.method default "") $(attributes.rawRequestPath default "")"]'
 			doc:name="Log Endpoint" />
 		<apikit:router config-ref="net-tools-config" />
         <error-handler>
@@ -152,16 +161,39 @@ output application/json
         </error-handler>
     </flow>
 	<flow name="get:\curl:net-tools-config">
-		<ee:transform doc:name="Transform Message" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6" >
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<flow name="post:\curl:application\json:net-tools-config">
+		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "application/json")]' doc:name="Set body" />
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<flow name="post:\curl:application\xml:net-tools-config">
+		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "application/xml")]' doc:name="Set body" />
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<flow name="post:\curl:text\plain:net-tools-config">
+		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "text/plain")]' doc:name="Set body" />
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<sub-flow name="curl-request">
+		<ee:transform doc:name="Run curl" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6" >
 			<ee:message >
 				<ee:set-payload ><![CDATA[%dw 2.0
 output application/java
 import java!com::mulesoft::tool::network::NetworkUtils
 ---
-NetworkUtils::curl(attributes.queryParams.url, attributes.queryParams.*header default [], attributes.queryParams.insecure as Boolean)]]></ee:set-payload>
+NetworkUtils::curl(
+  attributes.queryParams.url,
+  attributes.queryParams.method default "GET",
+  vars.curlBody default "",
+  attributes.queryParams.*header default [],
+  (attributes.queryParams.insecure default "false") as Boolean,
+  attributes.queryParams.user default "",
+  attributes.queryParams.authType default "basic"
+)]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>
-    </flow>
+    </sub-flow>
     <flow name="get:\dns:net-tools-config">
         <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" doc:id="2eb37294-21d7-412a-8ab6-8da73008b111">
             <ee:message>
@@ -217,6 +249,17 @@ NetworkUtils::cipherTest(attributes.queryParams.host, attributes.queryParams.por
 			</ee:message>
 		</ee:transform>
 	</flow>
+	<flow name="get:\diagnostics:net-tools-config">
+		<ee:transform doc:name="Transform Message">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+import java!com::mulesoft::tool::network::NetworkUtils
+---
+NetworkUtils::curlVersion()]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
 	<flow name="get:\traceroute:net-tools-config">
         <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="
 http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd 

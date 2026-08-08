@@ -6,6 +6,44 @@ securitySchemes:
   basic:
     type: Basic Authentication
 
+traits:
+  curlParams:
+    queryParameters:
+      url:
+        description: Target URL. Only http and https are allowed.
+        type: string
+      method:
+        description: HTTP method to send to the target
+        type: string
+        required: false
+        default: GET
+        enum: [GET, POST, PUT, PATCH, DELETE]
+      header:
+        description: A name:value header for the target request. Repeat for multiple headers.
+        required: false
+        items:
+          type: string
+          example: |
+            Content-Type:application/json
+      insecure:
+        description: Skip TLS certificate verification
+        type: boolean
+        required: false
+        default: false
+      user:
+        description: |
+          Credentials for the target. For basic this is user:password; for bearer it is
+          the token on its own.
+        type: string
+        required: false
+        example: alice:secret
+      authType:
+        description: Authentication scheme to use with user. Ignored when user is absent.
+        type: string
+        required: false
+        default: basic
+        enum: [basic, bearer]
+
 /ping:
   get:
     description: Runs an ICMP test from the Mule host to the specified endpoint
@@ -87,22 +125,29 @@ securitySchemes:
 /curl:
   get:
     description: Runs a curl from the Mule host to the specified resource
-    queryParameters:
-      url:
-        description: Target URL
-        type: string 
-      header:
-        required: false
-        items:
-          type: string
-          example: |
-            Authorization:Basic YQxhZGRpbjpvcGVuc2VzYW1l
-    responses: 
+    is: [curlParams]
+    responses:
       200:
-        body: 
+        body:
           text/plain:
             example: |
-              curl: (7) Failed to connect to 10.200.27.15 port 443: Timed out             
+              curl: (7) Failed to connect to 10.200.27.15 port 443: Timed out
+  post:
+    description: |
+      Runs a curl with a request body from the Mule host to the specified resource.
+      The Content-Type the target receives is set through the header query parameter
+      and is independent of the content type used to call this API.
+    is: [curlParams]
+    body:
+      application/json:
+      application/xml:
+      text/plain:
+    responses:
+      200:
+        body:
+          text/plain:
+            example: |
+              HTTP/1.1 201 Created
 
 /ciphertest:
   get:
@@ -129,9 +174,24 @@ securitySchemes:
         type: string
       port:
         description: The port number of host to be tested
-        type: number        
-    responses: 
+        type: number
+    responses:
       200:
-        body: 
+        body:
           text/plain:
             example: CONNECTED(00000005)
+
+/diagnostics:
+  get:
+    description: |
+      Reports the diagnostic tooling available on the Mule worker itself, rather
+      than probing a remote target. Currently the curl build, including its
+      version, TLS backend and supported protocols.
+    responses:
+      200:
+        body:
+          text/plain:
+            example: |
+              curl 8.7.1 (x86_64-apple-darwin23.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12
+              Protocols: dict file ftp ftps gopher gophers http https imap imaps ldap ldaps mqtt pop3 pop3s rtsp smb smbs smtp smtps telnet tftp
+              Features: alt-svc AsynchDNS GSS-API HSTS HTTP2 HTTPS-proxy IPv6 Kerberos Largefile libz MultiSSL NTLM SPNEGO SSL threadsafe UnixSockets

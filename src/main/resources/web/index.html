@@ -146,12 +146,26 @@
                     <option value="curl">curl</option>
                     <option value="certest">certificates</option>
                     <option value="ciphertest">ssl ciphers</option>
+                    <option value="diagnostics">diagnostics</option>
                 </select>
                 <input name="ip" placeholder="IP Address or Host" type="text" title="IP" id="ip" />
                 <input name="port" placeholder="Port" type="text" title="PORT" id="port" />
+                <select name="method" id="method">
+                    <option value="GET" selected>GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                </select>
                 <input name="url" placeholder="http://host:port/path/" type="text" title="URL" id="url" />
-                <input name="insecure" type="checkbox" title="insecure" id="insecure" checked="true" /><span class="helpBox" id="insecure_label">insecure</span>
+                <input name="authUser" placeholder="user:password (or token for bearer)" type="text" title="Credentials" id="authUser" />
+                <select name="authType" id="authType">
+                    <option value="basic" selected>basic</option>
+                    <option value="bearer">bearer</option>
+                </select>
+                <input name="insecure" type="checkbox" title="insecure" id="insecure" /><span class="helpBox" id="insecure_label">insecure</span>
                 <textarea name="headers" placeholder="header-name:header-value" title="Headers" id="headers" rows="3" cols="50" style="display: block"></textarea>
+                <textarea name="body" placeholder="request body" title="Body" id="body" rows="5" cols="50" style="display: block"></textarea>
                 <input name="dnsServer" placeholder="dns server" type="text" title="DNS SERVER" id="dnsServer" />
                 <button type="button" id="check">Run</button>
                 <button type="button" id="clean">Clean Console</button>
@@ -161,8 +175,9 @@
               <div class="helpBox" id="pingHelp">Set an IP Address or Hostname and hit Run. <br/>Note: Ping works using ICMP protocol. If it has been disabled, the ping will not receive any response.</div>
 			  <div class="helpBox" id="tracerouteHelp" style="display: none;">Set an IP Address or Hostname and hit Run</div>	
               <div class="helpBox" id="socketHelp" style="display: none;">Set an IP Address or Hostname, the Port and hit Run</div>	
-			  <div class="helpBox" id="dnsHelp" style="display: none;">Set a Hostname and hit Run</div>	
-			  <div class="helpBox" id="curlHelp" style="display: none;">Set an IP Address or Schema (http-https://) plus Hostname, the Port, the Path, the Headers (multi-line) and hit Run</div>	
+			  <div class="helpBox" id="dnsHelp" style="display: none;">Set a Hostname and hit Run</div>
+			  <div class="helpBox" id="diagnosticsHelp" style="display: none;">Reports the diagnostic tooling on the Mule worker itself, rather than probing a target. No input needed, just hit Run.</div>
+			  <div class="helpBox" id="curlHelp" style="display: none;">Pick the HTTP method, set an IP Address or Schema (http-https://) plus Hostname, the Port, the Path, the Headers (multi-line) and, for POST/PUT/PATCH, the request Body, then hit Run. <br/>Note: the Content-Type the target receives comes from the Headers box, for example <code>Content-Type:application/json</code>.</div>
 			</div>
             <pre id="output">
             </pre>
@@ -193,6 +208,8 @@
                     inputs.hide();
                     var textareas = $("#theForm textarea").removeClass();
                     textareas.hide();
+                    $("#method").hide();
+                    $("#authType").hide();
                     var helps = $(".helpBox");
                     helps.hide();
                     switch (operation) {
@@ -224,10 +241,17 @@
                         $("#dnsServer").show();                        
                         $("#dnsHelp").show();
                         break;
+                      case "diagnostics":
+                        $("#diagnosticsHelp").show();
+                        break;
                       case "curl":
+                        $("#method").show();
                         $("#url").show();
                         $("#curlHelp").show();
                         $("#headers").show();
+                        $("#body").show();
+                        $("#authUser").show();
+                        $("#authType").show();
                         $("#insecure").show();
                         $("#insecure_label").show();
                         break;
@@ -246,7 +270,9 @@
                     var url = (operation === 'curl') ? $("#url").val() : '';
                     var port = (operation === 'socket' || operation === 'certest' || operation === 'ciphertest') ? $("#port").val() : '';
                     var dnsServer = (operation === 'dns') ? $("#dnsServer").val() : '';                    
-                    if (operation !== 'curl' && !ip) {
+                    // curl takes a url instead of a host, and diagnostics inspects the
+                    // worker itself, so neither needs an IP.
+                    if (operation !== 'curl' && operation !== 'diagnostics' && !ip) {
                         toastr["error"]("Missing IP", "Invalid Arguments")
                         console.error("Missing IP!");
                         return;
@@ -261,32 +287,58 @@
                         console.error('Missing url!');
                         return;
                     }
-                    var apiurl = 'api/' + operation + '?host=' + ip;
+                    var method = (operation === 'curl') ? $("#method").val() : '';
+                    var body = (operation === 'curl') ? $("#body").val() : '';
+                    // Only send the parameters each endpoint actually declares. curl takes a
+                    // url rather than a host, and diagnostics takes nothing at all.
+                    var params = [];
+                    if (operation !== 'curl' && operation !== 'diagnostics') {
+                        params.push('host=' + encodeURIComponent(ip));
+                    }
                     if (operation === 'socket' || operation === 'certest' || operation === 'ciphertest') {
-                        apiurl += '&port=' + port;
+                        params.push('port=' + encodeURIComponent(port));
                     }
                     if (operation === 'dns') {
-                        apiurl += '&dnsServer=' + dnsServer;
+                        params.push('dnsServer=' + encodeURIComponent(dnsServer));
                     }
                     if (operation === 'curl') {
-                        apiurl += '&url=' + encodeURI(url);
-                        apiurl += '&insecure=' + $("#insecure").prop('checked');
+                        params.push('url=' + encodeURIComponent(url));
+                        params.push('method=' + method);
+                        params.push('insecure=' + $("#insecure").prop('checked'));
+                        // Only sent when filled in, so an empty box does not turn on auth.
+                        if ($("#authUser").val().trim()) {
+                            params.push('user=' + encodeURIComponent($("#authUser").val().trim()));
+                            params.push('authType=' + $("#authType").val());
+                        }
                         for (let h of $("#headers").val().split('\n')) {
-                        	apiurl += '&header=' + encodeURI(h);
+                            if (h.trim()) {
+                                params.push('header=' + encodeURIComponent(h));
+                            }
                         }
                     }
-                    console.log(operation + " " + ip + " " + port + " " + url );
+                    var apiurl = 'api/' + operation + (params.length ? '?' + params.join('&') : '');
+                    // A non-empty body goes to POST /api/curl so the payload travels in the
+                    // request body; an empty one keeps the GET endpoint. Either way the verb
+                    // sent to the target comes from the method parameter.
+                    var ajaxOptions = { url: apiurl };
+                    if (body.trim()) {
+                        ajaxOptions.method = 'POST';
+                        ajaxOptions.contentType = 'text/plain';
+                        ajaxOptions.data = body;
+                    }
+                    console.log(operation + " " + method + " " + ip + " " + port + " " + url );
                     $("#check").attr("disabled", true);
-                    $("#output").append('<pre class="command">&gt; ' + operation + ' ' + ip + ' ' + port + ' ' + url + '</pre>');
-                    $.ajax({
-                        url: apiurl
-                    })
+                    var echoed = [operation, method, ip, port, url].filter(Boolean).join(' ');
+                    $("#output").append($('<pre class="command"></pre>').text('> ' + echoed));
+                    $.ajax(ajaxOptions)
                     .done(function(result) {
-                        if (operation === 'curl') {
-                        	$("#output").append('<textarea class="output">' + result + '</textarea>');
-                        } else {
-                        	$("#output").append('<pre class="output">' + result + '</pre>');
-                        }
+                        // Build the element and set its text, rather than concatenating the
+                        // response into HTML. The response comes from an arbitrary target
+                        // host, so a body containing markup would otherwise run as script.
+                        var out = (operation === 'curl')
+                            ? $('<textarea class="output"></textarea>')
+                            : $('<pre class="output"></pre>');
+                        $("#output").append(out.text(result));
                     })
                     .fail(function() {
                         toastr["error"]("Couldn't complete request", "Error during invocation")
