@@ -21,12 +21,14 @@ public class NetworkUtils {
 	private static final List<String> ALLOWED_METHODS =
 			Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE");
 
-	// BASIC, DIGEST, NTLM and NEGOTIATE need curl to answer a 401 challenge, so they
-	// cannot be expressed as a fixed header. BEARER can, and remains available through the
-	// header parameter, but is offered here too so callers have one consistent place to
-	// put credentials. For BEARER the credential is the token, not user:password.
+	// Deliberately limited to what modern APIs use. Both are also expressible as a plain
+	// Authorization header; this parameter exists so credentials have one obvious home and
+	// so basic does not require hand-rolling base64. For BEARER the credential is the
+	// token itself, not user:password.
+	// The challenge-response schemes curl also supports (digest, ntlm, negotiate) were
+	// considered and dropped: they target legacy on-prem stacks rather than APIs.
 	private static final List<String> ALLOWED_AUTH_TYPES =
-			Arrays.asList("BASIC", "DIGEST", "NTLM", "NEGOTIATE", "BEARER");
+			Arrays.asList("BASIC", "BEARER");
 
 	public static String ping(String host) throws Exception {
 		return execute(new ProcessBuilder("ping", "-c", "4", host));
