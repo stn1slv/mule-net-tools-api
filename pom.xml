@@ -17,6 +17,12 @@
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
+		<!-- Without this the compiler plugin falls back to its own default and emits Java 8
+		     bytecode, which runs on the worker but disagrees with every other declaration
+		     of the Java version: supportedJavaVersions in mule-artifact.json, the release
+		     workflow, and the README. Mule 4.9 requires Java 17 to build and run. -->
+		<maven.compiler.release>17</maven.compiler.release>
+
 		<app.runtime>4.9.0</app.runtime>
 		<mule.maven.plugin.version>4.10.1</mule.maven.plugin.version>
 		<apikit.module.version>1.12.4</apikit.module.version>
