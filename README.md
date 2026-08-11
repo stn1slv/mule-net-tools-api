@@ -133,8 +133,8 @@ In other words, you send the request you want relayed, and add headers saying wh
 | `x-target-url` | yes | The target URL. Must be `http` or `https`. |
 | `x-target-header` | no | A `name: value` header for the target request. Repeat for multiple headers. |
 | `x-target-insecure` | no | `true` skips TLS certificate verification. Defaults to `false`. |
-| `x-target-user` | no | Credentials for the target. `user:password` for basic; the token alone for bearer. |
-| `x-target-auth-type` | no | `basic` or `bearer`. Defaults to `basic`, and is ignored without `x-target-user`. |
+| `x-target-credentials` | no | Credentials for the target. `user:password` for basic; the token alone for bearer. |
+| `x-target-auth-type` | no | `basic` or `bearer`. Defaults to `basic`, and is ignored without `x-target-credentials`. |
 
 Header names are case-insensitive, so `X-Target-Url` works just as well.
 
@@ -190,17 +190,17 @@ curl -u vpc-tools:SomePass \
 
 ```
 # basic, without hand-rolling base64
--H 'x-target-user: alice:secret' -H 'x-target-auth-type: basic'
+-H 'x-target-credentials: alice:secret' -H 'x-target-auth-type: basic'
 
 # bearer token
--H 'x-target-user: eyJhbGciOiJIUzI1NiJ9...' -H 'x-target-auth-type: bearer'
+-H 'x-target-credentials: eyJhbGciOiJIUzI1NiJ9...' -H 'x-target-auth-type: bearer'
 ```
 
-Both are equivalent to setting `x-target-header: Authorization: ...` yourself, so use whichever is clearer. `x-target-user` exists mainly so basic does not require you to base64-encode by hand. Anything else, such as API keys, signed requests or custom schemes, goes through `x-target-header`.
+Both are equivalent to setting `x-target-header: Authorization: ...` yourself, so use whichever is clearer. `x-target-credentials` exists mainly so basic does not require you to base64-encode by hand. Anything else, such as API keys, signed requests or custom schemes, goes through `x-target-header`.
 
 Only these two schemes are supported, on purpose. curl can also do `digest`, `ntlm` and `negotiate`, but those target legacy on-prem stacks rather than APIs and were deliberately left out.
 
-One practical note: an `x-target-user` value with no colon would make curl wait for a password on a terminal that does not exist here, so a trailing colon is added for you and the password is treated as empty.
+One practical note: an `x-target-credentials` value with no colon would make curl wait for a password on a terminal that does not exist here, so a trailing colon is added for you and the password is treated as empty.
 
 # How responses work
 
@@ -243,7 +243,7 @@ Two behaviours worth knowing:
 
 Anyone who can authenticate to this app can therefore reach whatever the worker can reach. **Treat access to this tool as equivalent to shell access on the worker's network, and set a strong `pass`.**
 
-Credentials you send for the target, whether in `x-target-user` or an `x-target-header`, stay out of the application log: it records only the scheme, method and path. Anything in front of the app that logs request headers would still record them.
+Credentials you send for the target, whether in `x-target-credentials` or an `x-target-header`, stay out of the application log: it records only the scheme, method and path. Anything in front of the app that logs request headers would still record them.
 
 # Network considerations
 
@@ -262,7 +262,7 @@ Every 2.x call to `/api/curl` needs changing. The other endpoints are unchanged.
 | `?method=PUT` | call the API with `-X PUT` |
 | `?header=Name:value` | `-H 'x-target-header: Name: value'` |
 | `?insecure=true` | `-H 'x-target-insecure: true'` |
-| `?user=alice:secret` | `-H 'x-target-user: alice:secret'` |
+| `?user=alice:secret` | `-H 'x-target-credentials: alice:secret'` |
 | `?authType=bearer` | `-H 'x-target-auth-type: bearer'` |
 | `?header=Content-Type:application/json` | nothing: your own `Content-Type` is used |
 

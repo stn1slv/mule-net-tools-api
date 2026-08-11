@@ -27,7 +27,7 @@ traits:
         type: boolean
         required: false
         default: false
-      x-target-user:
+      x-target-credentials:
         description: |
           Credentials for the target. For basic this is user:password; for bearer it is
           the token on its own.
@@ -35,7 +35,7 @@ traits:
         required: false
         example: alice:secret
       x-target-auth-type:
-        description: Authentication scheme to use with x-target-user. Ignored when it is absent.
+        description: Authentication scheme to use with x-target-credentials. Ignored when it is absent.
         type: string
         required: false
         default: basic

@@ -22,10 +22,13 @@ http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/
 			</http:error-response>
 		</http:listener>
 		<http:basic-security-filter doc:name="Basic security filter" realm="mule" />
-		<!-- Not requestUri: the query string carries the header parameter, so logging it
-		     would write Authorization values and any credentials embedded in the target url
-		     straight into the application log. The trade-off is that the log no longer
-		     records which target was probed.
+		<!-- Path only, and deliberately not the target. Since 3.0 the curl parameters
+		     arrive as x-target-* request headers rather than query parameters, so the
+		     query string is no longer the danger it was. The danger moved rather than
+		     disappeared: x-target-credentials carries credentials, x-target-header
+		     carries Authorization, and x-target-url can embed credentials as
+		     https://user:pass@host. None of them are logged. Do not "restore" target
+		     logging on the grounds that the query string is now empty.
 
 		     rawRequestPath rather than requestPath, because requestPath is URL-decoded, so
 		     a request to /api/%0aINFO%20forged would decode into a real newline and let the
@@ -154,7 +157,7 @@ NetworkUtils::curl(
   if (payload == null) null else read(payload, "application/octet-stream"),
   attributes.headers.*"x-target-header" default [],
   (attributes.headers["x-target-insecure"] default "false") as Boolean,
-  attributes.headers["x-target-user"] default "",
+  attributes.headers["x-target-credentials"] default "",
   attributes.headers["x-target-auth-type"] default "basic",
   attributes.headers["content-type"] default ""
 )]]></ee:set-payload>

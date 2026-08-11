@@ -98,7 +98,7 @@ network. Do not describe local disclosure as "closed" in documentation.
 
 **Do not log the target URL.** Since 3.0 the parameters arrive as `x-target-*`
 request headers rather than query parameters, so the query string is no longer
-the danger it was. The danger moved rather than disappeared: `x-target-user`
+the danger it was. The danger moved rather than disappeared: `x-target-credentials`
 carries credentials, `x-target-header` carries `Authorization`, and
 `x-target-url` can embed credentials as `https://user:pass@host`. Log none of
 them, and do not "restore" target logging on the grounds that the query string is
