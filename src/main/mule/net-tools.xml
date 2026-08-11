@@ -10,7 +10,16 @@ http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/
 
 	<flow name="net-tools-main"
 		doc:id="6f86a93f-9de9-4cf8-b092-b6a4b23c42f4">
-		<http:listener config-ref="https" path="/api/*">
+		<!-- outputMimeType pins the media type of the *inbound* payload. Without it the
+		     listener tags the body with the request's own Content-Type, and DataWeave then
+		     resolves `payload` to a parsed Object for any type it has a reader for, so
+		     read(payload, "application/octet-stream") in curl-request fails outright for
+		     application/json and application/xml. Verified against a standalone DataWeave
+		     engine: read() is byte-exact at application/octet-stream and text/plain, and
+		     throws UnexpectedFunctionCallTypesException once the payload carries a
+		     parseable media type. The caller's real Content-Type is still available, and
+		     is read from attributes.headers["content-type"] for forwarding. -->
+		<http:listener config-ref="https" path="/api/*" outputMimeType="application/octet-stream">
 			<http:response
 				statusCode="#[vars.httpStatus default 200]">
 				<http:headers>#[vars.outboundHeaders default {}]</http:headers>
@@ -151,7 +160,13 @@ output application/json
 		     known gap, and closing it would mean streaming the body to curl's stdin
 		     rather than passing a byte[]. -->
 		<choice doc:name="Body within the size limit?">
-			<when expression='#[((attributes.headers["content-length"] default "") matches /^[0-9]+$/) and ((attributes.headers["content-length"] as Number) > 10485760)]'>
+			<!-- Both operands carry their own `default`, so neither depends on `and`
+			     short-circuiting. The regex test alone would be enough today, but a
+			     reordering or a "simplification" of it would otherwise turn every request
+			     without a Content-Length into a coercion error rather than a 500-free
+			     pass-through. `matches` is a full match, so a malformed length falls
+			     through to <otherwise>; the connector rejects those upstream anyway. -->
+			<when expression='#[((attributes.headers["content-length"] default "") matches /^[0-9]+$/) and (((attributes.headers["content-length"] default "0") as Number) > 10485760)]'>
 				<ee:transform doc:name="Refuse oversized body">
 					<ee:message>
 						<ee:set-payload><![CDATA[%dw 2.0
@@ -165,14 +180,18 @@ output text/plain
 				</ee:transform>
 			</when>
 			<otherwise>
-		<ee:transform doc:name="Run curl" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6" >
-			<ee:message >
-				<ee:set-payload ><![CDATA[%dw 2.0
+				<ee:transform doc:name="Run curl" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
 output application/java
 import java!com::mulesoft::tool::network::NetworkUtils
 //  read(), never write(). write() parses the payload and serialises it again, which
-//  is what used to alter JSON and XML bodies on the way through. Reading the raw
-//  value as application/octet-stream hands the caller's bytes over untouched.
+//  is what used to alter JSON and XML bodies on the way through.
+//
+//  This only works because the listener pins the inbound payload to
+//  application/octet-stream. Left with the request's own Content-Type, DataWeave
+//  resolves `payload` to a parsed Object for any format it has a reader for, and
+//  read() then fails outright for application/json and application/xml.
 //
 //  Header names are lowercase because the HTTP connector normalises inbound names
 //  to lowercase before they reach attributes.headers. Callers may use any case.
@@ -187,8 +206,8 @@ NetworkUtils::curl(
   attributes.headers["x-target-auth-type"] default "basic",
   attributes.headers["content-type"] default ""
 )]]></ee:set-payload>
-			</ee:message>
-		</ee:transform>
+					</ee:message>
+				</ee:transform>
 			</otherwise>
 		</choice>
     </sub-flow>

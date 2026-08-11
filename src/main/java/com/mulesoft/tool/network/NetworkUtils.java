@@ -88,6 +88,15 @@ public class NetworkUtils {
 			headers = decoded;
 		}
 
+		if (url != null && (url.indexOf('\r') >= 0 || url.indexOf('\n') >= 0)) {
+			// curl 7.76.1 predates some of the URL parser's control-character tightening,
+			// and a newline in a URL has historically been a request-splitting vector. The
+			// HTTP connector should already make this unreachable through the API, since a
+			// header value cannot carry a line break; this is defence in depth on a public
+			// static method.
+			return "The target URL may not contain carriage returns or line feeds.";
+		}
+
 		String verb = (method == null || method.trim().isEmpty())
 				? "GET" : method.trim().toUpperCase(Locale.ROOT);
 		if (!ALLOWED_METHODS.contains(verb)) {

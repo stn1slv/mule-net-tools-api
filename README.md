@@ -216,6 +216,7 @@ Errors from the API layer return JSON:
 | `401` | *(empty)* | Missing or wrong Basic Authentication credentials |
 | `404` | `{"message": "Resource not found"}` | Unknown path under `/api` |
 | `405` | `{"message": "Method not allowed"}` | Right path, wrong method, such as `POST /api/ping` or `HEAD /api/curl` |
+| `406` | `{"message": "Not acceptable"}` | An `Accept` header that excludes `text/plain`. Every endpoint returns `text/plain`, so a client defaulting to `Accept: application/json` trips this |
 | `413` | *(plain text)* | A `/api/curl` request body larger than 10 MiB |
 
 Paths outside `/api`, including `/`, return a bare `404` from the HTTP connector with no body. Nothing is served there.
@@ -228,7 +229,7 @@ The curl endpoint runs a real `curl` on the worker with input you supply, so it 
 |---|---|---|
 | Connect timeout | 10 seconds | A blackholed host fails quickly instead of holding a worker thread open |
 | Total transfer time | 30 seconds | Same |
-| Response size | 10 MiB | The whole body is buffered in memory, so a larger response is refused rather than risking the worker |
+| Response size | 10 MiB | The whole body is buffered in memory, so a larger response is refused rather than risking the worker. curl can only enforce this when the target declares a `Content-Length`; a chunked response is not capped, and is bounded only by the 30 second transfer timeout |
 | Request body size | 10 MiB | Same reason in the other direction: the body you send is read into memory before it is handed to curl. Enforced from `Content-Length`, so a chunked request with no declared length is not covered |
 | Protocols | `http` and `https` only | On the original request and on every redirect, so `file://` cannot read worker files |
 | URL globbing | disabled | `http://10.0.0.[1-254]/` is one literal address, not 254 requests each with its own timeout |

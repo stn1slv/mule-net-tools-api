@@ -190,6 +190,26 @@ All five flows are one-line `flow-ref`s into the `curl-request` sub-flow, which
 holds the only DataWeave-to-Java call. Add logic there, never in the per-verb
 flows.
 
+**The listener pins `outputMimeType="application/octet-stream"`, and that is
+load-bearing.** Left with the request's own `Content-Type`, DataWeave resolves
+`payload` to a parsed Object for any format it has a reader for, and
+`read(payload, "application/octet-stream")` then fails outright. Verified against
+a standalone DataWeave engine by binding an `InputStream` with an explicit media
+type:
+
+| payload media type | `read(payload, "application/octet-stream")` |
+|---|---|
+| `application/octet-stream` | byte-exact |
+| `text/plain` | byte-exact |
+| a parseable type such as `application/csv` | throws `UnexpectedFunctionCallTypesException` |
+
+So without the pinned media type, `POST /api/curl` with
+`Content-Type: application/json` returns a 500. `payload as Binary` fails the
+same way. `payload.^raw` is the documented raw accessor and may also work, but it
+returned null in that standalone harness, so it was not adopted on the strength
+of the documentation alone. The caller's real content type is unaffected and is
+still read from `attributes.headers["content-type"]`.
+
 **Use `read()`, never `write()`, for the request body.** `write(payload, ...)`
 parses the payload and serialises it again, which used to alter JSON and XML
 bodies on the way through: whitespace, key order, XML comments, CDATA and number
