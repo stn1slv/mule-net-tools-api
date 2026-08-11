@@ -4,14 +4,14 @@
 
 	<groupId>com.github.stn1slv</groupId>
 	<artifactId>net-tools-api</artifactId>
-	<version>2.7.0</version>
+	<version>3.0.0</version>
 	<packaging>mule-application</packaging>
 
 	<name>net-tools-api</name>
 	<description>Mule application that exposes network diagnostic tools (DNS, ping,
-		traceroute, TCP socket, curl, TLS certificate and cipher tests) as a REST API
-		with a simple web UI, for troubleshooting connectivity from a CloudHub worker
-		to on-premises systems.</description>
+		traceroute, TCP socket, curl, TLS certificate and cipher tests) as a REST API,
+		for troubleshooting connectivity from a CloudHub worker to on-premises
+		systems.</description>
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
