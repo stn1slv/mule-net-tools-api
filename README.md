@@ -2,19 +2,28 @@
 
 > This repository continues the development of [mulesoft-labs/net-tools-api](https://github.com/mulesoft-labs/net-tools-api), which its owner archived on 4 May 2024 and which is now read-only. Work carries on here: new features, fixes and releases are published in this repository, not the upstream one.
 
-Net Tools API is a deployable Mule app that runs network diagnostics *from your worker*. Deploy it to CloudHub or any worker cloud, and you can ping, resolve, traceroute, open TCP sockets, inspect TLS certificates and relay arbitrary HTTP requests, all from inside the VPC.
+Net Tools API is a deployable Mule app that runs network diagnostics *from wherever it is deployed*. Install it next to your integrations and you can ping, resolve, traceroute, open TCP sockets, inspect TLS certificates and relay arbitrary HTTP requests, all from inside the same network as your Mule runtime.
 
-Most connectivity problems between a CloudHub VPC or VPN and an on-premises system come down to firewall and routing rules, and they are resolved on the customer's side. This tool lets you and the networking team see what the worker itself can reach, rather than guessing. It is also useful for generating traffic while diagnosing a flaky path.
+It runs anywhere Mule 4.9 runs:
+
+| Platform | Notes |
+|---|---|
+| **Runtime Fabric (RTF)** | Single HTTP listener port; see [Network considerations](#network-considerations) |
+| **CloudHub 2.0** | Same single-port model as RTF |
+| **CloudHub 1.0** | Two ports, shared or dedicated load balancer |
+| **Standalone / on-premises Mule** | Drop the jar in `apps/`; both ports available |
+
+Most connectivity problems between a Mule runtime and the systems it integrates with come down to firewall, routing or DNS rules, and they are usually resolved by a team other than yours. This tool lets you and the networking team see what the runtime itself can reach, rather than guessing from a failed integration. It is also useful for generating traffic while diagnosing a flaky path.
 
 **Version 3.0 removed the web UI.** The app is now API-only, and the `/curl` endpoint was redesigned. See [Upgrading from 2.x](#upgrading-from-2x) if you have existing callers.
 
 ## Quick start
 
 ```
-BASE='http://{app-name}.{region}.cloudhub.io/api'
+BASE='https://{your-app-host}/api'    # see Base URL below for your platform
 AUTH='vpc-tools:SomePass'
 
-# 1. Can the worker resolve the host?
+# 1. Can the runtime resolve the host?
 curl -u "$AUTH" "$BASE/dns?host=erp.internal.example.com"
 
 # 2. Can it open the port? (more reliable than ping, which many networks drop)
@@ -30,11 +39,11 @@ Change `pass` from its default before you deploy this anywhere real. See [Securi
 
 This version requires **Mule runtime 4.9 or later, running on Java 17**. Mule 4.9 does not run on Java 11, so this is a single combination rather than a choice.
 
-If you need to deploy to a worker running Mule 4.4, 4.6 or 4.8, use release [2.5.1](https://github.com/stn1slv/mule-net-tools-api/releases/tag/2.5.1) or earlier, which targets Mule 4.1.3 and above.
+If you need to deploy to a runtime on Mule 4.4, 4.6 or 4.8, use release [2.5.1](https://github.com/stn1slv/mule-net-tools/releases/tag/2.5.1) or earlier, which targets Mule 4.1.3 and above.
 
 ## Configuration
 
-Set these properties on the app to override the defaults. The ports must match your load balancer and VPC firewall rules; the defaults suit the CloudHub shared load balancer HTTP endpoint.
+Set these properties on the app to override the defaults. The ports must match whatever fronts the app — an ingress, a load balancer or a firewall rule. The defaults suit the CloudHub 1.0 shared load balancer; on RTF and CloudHub 2.0 you will usually set one port to match the ingress. See [Network considerations](#network-considerations).
 
 | Property | Default | Purpose |
 |---|---|---|
@@ -42,23 +51,28 @@ Set these properties on the app to override the defaults. The ports must match y
 | `pass` | `SomePass` | Password for Basic Authentication. **Change this.** |
 | `httpPort` | `8081` | Listener port for HTTP |
 | `httpsPort` | `8082` | Listener port for HTTPS |
-| `httpListener` | `started` | Running state of the HTTP flows. Set to `stopped` to disable the HTTP endpoint on CloudHub 1.0 or non-RTF infrastructure. No effect on RTF or CloudHub 2.0, which use a single port. |
+| `httpListener` | `started` | Running state of the plain-HTTP flows. Set to `stopped` to serve HTTPS only. Leave it `started` on RTF and CloudHub 2.0 when the ingress terminates TLS and forwards plain HTTP, which is the default there. |
 
 # Usage
 
 ## Base URL and authentication
 
-Every endpoint lives under `/api` and uses HTTP Basic Authentication with the `user` and `pass` values above.
+Every endpoint lives under `/api` and uses HTTP Basic Authentication with the `user` and `pass` values above. The host depends on where you deployed it:
 
-- CloudHub Shared Load Balancer: `http://{app-name}.{region}.cloudhub.io`
-- Dedicated Load Balancer: your custom URL.
+| Platform | Base URL |
+|---|---|
+| Runtime Fabric | `https://{ingress-host}/{app-name}` — whatever path and host the ingress resource defines |
+| CloudHub 2.0 | `https://{app-name}.{shard}.{region}.cloudhub.io` |
+| CloudHub 1.0, shared load balancer | `http://{app-name}.{region}.cloudhub.io` |
+| CloudHub 1.0, dedicated load balancer | your custom domain |
+| Standalone / on-premises | `http://{host}:8081` or `https://{host}:8082`, per `httpPort` and `httpsPort` |
 
 ```
-BASE='http://{app-name}.{region}.cloudhub.io/api'
+BASE='https://{your-app-host}/api'
 curl -u vpc-tools:SomePass "$BASE/ping?host=10.20.30.40"
 ```
 
-Every tool runs on the Mule worker, so the results describe what the *worker* can reach. That is the whole point when debugging a VPC or VPN path.
+Every tool runs on the Mule runtime itself, so the results describe what *it* can reach. That is the whole point when debugging a VPC, a VPN, an RTF cluster's egress or an on-premises firewall rule.
 
 ## Endpoints
 
@@ -71,13 +85,13 @@ Every tool runs on the Mule worker, so the results describe what the *worker* ca
 | `GET` | `/api/certest` | `host`, `port` | Retrieves the certificate chain presented by a TLS endpoint |
 | `GET` | `/api/ciphertest` | `host`, `port` | Tests every cipher the local OpenSSL knows against the endpoint |
 | `GET` `POST` `PUT` `PATCH` `DELETE` | `/api/curl` | `x-target-*` headers, see below | Relays an HTTP request to a target |
-| `GET` | `/api/diagnostics` | *(none)* | Reports the worker's own tooling, currently the curl build |
+| `GET` | `/api/diagnostics` | *(none)* | Reports the runtime's own tooling, currently the curl build |
 
 Remember to URL-encode query parameter values.
 
 ## Common checks
 
-Confirm the worker resolves and reaches an on-prem host:
+Confirm the runtime resolves and reaches a target host:
 
 ```
 curl -u vpc-tools:SomePass "$BASE/dns?host=erp.internal.example.com"
@@ -111,17 +125,17 @@ curl -u vpc-tools:SomePass "$BASE/ciphertest?host=erp.internal.example.com&port=
 
 `ciphertest` tries every cipher in turn, so it takes noticeably longer than the others.
 
-Check what the worker itself is working with. This is the one call that probes nothing remote:
+Check what the runtime itself is working with. This is the one call that probes nothing remote:
 
 ```
 curl -u vpc-tools:SomePass "$BASE/diagnostics"
 ```
 
-It returns `curl --version`: the version, TLS backend and supported protocols. Worth checking when a request behaves unexpectedly, since the curl endpoint depends on specific flags being available in the worker's build.
+It returns `curl --version`: the version, TLS backend and supported protocols. Worth checking when a request behaves unexpectedly, since the curl endpoint depends on specific flags being available in the runtime's build.
 
 ## The curl endpoint
 
-`/api/curl` relays an HTTP request from the worker to a target. Two rules make it predictable:
+`/api/curl` relays an HTTP request from the runtime to a target. Two rules make it predictable:
 
 1. **The method you call it with is the method the target receives.** A `PUT` here sends a `PUT` there.
 2. **Your request body and its content type are passed straight through.** The body is relayed byte for byte, and the target is told the same `Content-Type` you sent. If you send a body without a `Content-Type`, there is nothing to forward and curl falls back to labelling it `application/x-www-form-urlencoded`, so set one.
@@ -242,17 +256,17 @@ Paths outside `/api`, including `/`, return a bare `404` from the HTTP connector
 
 # Limits and safeguards
 
-The curl endpoint runs a real `curl` on the worker with input you supply, so it is deliberately fenced in.
+The curl endpoint runs a real `curl` on the runtime with input you supply, so it is deliberately fenced in.
 
 | Limit | Value | Why |
 |---|---|---|
 | Connect timeout | 10 seconds | A blackholed host fails quickly instead of holding a worker thread open |
 | Total transfer time | 30 seconds | Same |
-| Response size | 10 MiB | The whole body is buffered in memory, so a larger response is refused rather than risking the worker. curl can only enforce this when the target declares a `Content-Length`; a chunked response is not capped, and is bounded only by the 30 second transfer timeout |
+| Response size | 10 MiB | The whole body is buffered in memory, so a larger response is refused rather than risking the runtime. curl can only enforce this when the target declares a `Content-Length`; a chunked response is not capped, and is bounded only by the 30 second transfer timeout |
 | Request body size | 10 MiB | Same reason in the other direction: the body you send is read into memory before it is handed to curl. Enforced from `Content-Length`, so a chunked request with no declared length is not covered |
-| Protocols | `http` and `https` only | On the original request and on every redirect, so `file://` cannot read worker files |
+| Protocols | `http` and `https` only | On the original request and on every redirect, so `file://` cannot read files from the runtime's filesystem |
 | URL globbing | disabled | `http://10.0.0.[1-254]/` is one literal address, not 254 requests each with its own timeout |
-| Header values | may not start with `@` or contain line breaks | A leading `@` makes curl read a local file and send every line as a header, disclosing worker files. A line break lets a caller append headers or write a whole second request line |
+| Header values | may not start with `@` or contain line breaks | A leading `@` makes curl read a local file and send every line as a header, disclosing files from the runtime's filesystem. A line break lets a caller append headers or write a whole second request line |
 
 Three behaviours worth knowing:
 
@@ -262,18 +276,37 @@ Three behaviours worth knowing:
 
 # Security
 
-**Only the scheme is restricted, not the destination.** `http` and `https` to *any* reachable address are allowed by design, because that is the point of the tool. That includes the worker's own listener on `127.0.0.1` and, on CloudHub 1.0, the instance metadata service on `169.254.169.254`.
+**Only the scheme is restricted, not the destination.** `http` and `https` to *any* reachable address are allowed by design, because that is the point of the tool. That includes the app's own listener on `127.0.0.1`, anything else running in the same cluster or subnet, and any cloud instance metadata service the runtime can reach — `169.254.169.254` on CloudHub 1.0, and the equivalent on whatever infrastructure hosts an RTF cluster.
 
-Anyone who can authenticate to this app can therefore reach whatever the worker can reach. **Treat access to this tool as equivalent to shell access on the worker's network, and set a strong `pass`.**
+Anyone who can authenticate to this app can therefore reach whatever the runtime can reach. **Treat access to this tool as equivalent to shell access on that network, and set a strong `pass`.**
+
+This matters most where the runtime sits closest to sensitive systems. On RTF and on-premises deployments the app shares a network with your other workloads, so scope its exposure accordingly: an internal-only ingress, a firewall rule, or simply removing the app when the investigation is over.
 
 Credentials you send for the target, whether in `x-target-credentials` or an `x-target-h-` header, stay out of the application log: it records only the scheme, method and path. Anything in front of the app that logs request headers would still record them.
 
 # Network considerations
 
+Applies everywhere:
+
 - `httpsPort` and `httpPort` **must always** be different numbers, even when `httpListener=stopped`, because both listener configurations are always created.
-- CloudHub 2.0 and RTF use a single port for the HTTP listener, so you can run either HTTP or HTTPS but not both. Set the property you want to the proper port and the other to an unused one.
-- On CloudHub 2.0 and RTF, enable *Last-Mile Security* in the app's Ingress tab to use HTTPS.
-- This app does not use the `http.port` and `https.port` properties, because CloudHub 2.0 and RTF override those to the same port, which causes a port conflict at startup.
+- This app deliberately does not use the conventional `http.port` and `https.port` property names, because RTF and CloudHub 2.0 override those to the same value, which causes a port conflict at startup.
+
+**Runtime Fabric and CloudHub 2.0** use a single port for inbound traffic, so you can run either HTTP or HTTPS but not both:
+
+- Set the property matching the protocol you want to the port the ingress targets, and set the other to an unused number.
+- To use HTTPS, enable *Last-Mile Security* in the app's Ingress settings. Without it, the ingress terminates TLS and forwards plain HTTP to the app, so the app should listen on HTTP.
+- On RTF, the ingress resource decides the host and path; the app itself only ever sees `/api/...`.
+
+**CloudHub 1.0** exposes both ports:
+
+- Leave `httpListener=started` to keep the HTTP endpoint, or set it to `stopped` to serve HTTPS only.
+- The shared load balancer reaches the HTTP port; a dedicated load balancer can map either.
+
+**Standalone or on-premises Mule:**
+
+- Both listeners start as configured, with no ingress in front, so `httpPort` and `httpsPort` are the ports clients connect to directly.
+- The bundled HTTPS listener uses a **self-signed certificate**, which is fine for a diagnostic tool on an internal network but will make clients complain. Replace `server.jceks` if that matters.
+- Nothing restricts who can reach the ports, so put the app behind a firewall rule and read [Security](#security) first.
 
 # Upgrading from 2.x
 
@@ -328,10 +361,12 @@ Building locally needs the same toolchain the workflow uses, Java 17 and any cur
 mvn clean package
 ```
 
-Latest builds are on the [releases page](https://github.com/stn1slv/mule-net-tools-api/releases). Builds from before the project was archived remain on the [upstream releases page](https://github.com/mulesoft-labs/net-tools-api/releases), which no longer receives updates.
+Latest builds are on the [releases page](https://github.com/stn1slv/mule-net-tools/releases). Builds from before the project was archived remain on the [upstream releases page](https://github.com/mulesoft-labs/net-tools-api/releases), which no longer receives updates.
 
 # References
 
+- [Runtime Fabric: configure ingress](https://docs.mulesoft.com/runtime-fabric/latest/enable-inbound-traffic)
+- [Enable Last Mile Security in RTF](https://help.mulesoft.com/s/article/How-to-Enable-both-Last-Mile-Security-and-Mutual-TLS-in-Runtime-Fabric)
 - [CloudHub 2.0 Infrastructure Considerations](https://docs.mulesoft.com/cloudhub-2/ch2-comparison#infrastructure-considerations)
 - [CloudHub 1.0 Load Balancer Architecture](https://docs.mulesoft.com/cloudhub-1/lb-architecture)
-- [Enable Last Mile Security in RTF](https://help.mulesoft.com/s/article/How-to-Enable-both-Last-Mile-Security-and-Mutual-TLS-in-Runtime-Fabric)
+- [Deploying to a standalone Mule runtime](https://docs.mulesoft.com/mule-runtime/latest/deploying-to-a-cluster)
