@@ -116,19 +116,23 @@ output application/json
             </on-error-propagate>
         </error-handler>
     </flow>
+	<!-- One flow per verb, and each does nothing but delegate. The method this API is
+	     called with is the method the target receives, so there is no method parameter
+	     to validate: APIkit answers 405 for anything not declared in the RAML. All the
+	     logic lives in curl-request, which holds the only DataWeave-to-Java call. -->
 	<flow name="get:\curl:net-tools-config">
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
-	<flow name="post:\curl:application\json:net-tools-config">
-		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "application/json")]' doc:name="Set body" />
+	<flow name="post:\curl:net-tools-config">
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
-	<flow name="post:\curl:application\xml:net-tools-config">
-		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "application/xml")]' doc:name="Set body" />
+	<flow name="put:\curl:net-tools-config">
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
-	<flow name="post:\curl:text\plain:net-tools-config">
-		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "text/plain")]' doc:name="Set body" />
+	<flow name="patch:\curl:net-tools-config">
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<flow name="delete:\curl:net-tools-config">
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
 	<sub-flow name="curl-request">
@@ -137,15 +141,22 @@ output application/json
 				<ee:set-payload ><![CDATA[%dw 2.0
 output application/java
 import java!com::mulesoft::tool::network::NetworkUtils
+//  read(), never write(). write() parses the payload and serialises it again, which
+//  is what used to alter JSON and XML bodies on the way through. Reading the raw
+//  value as application/octet-stream hands the caller's bytes over untouched.
+//
+//  Header names are lowercase because the HTTP connector normalises inbound names
+//  to lowercase before they reach attributes.headers. Callers may use any case.
 ---
 NetworkUtils::curl(
-  attributes.queryParams.url,
-  attributes.queryParams.method default "GET",
-  vars.curlBody default "",
-  attributes.queryParams.*header default [],
-  (attributes.queryParams.insecure default "false") as Boolean,
-  attributes.queryParams.user default "",
-  attributes.queryParams.authType default "basic"
+  attributes.headers["x-target-url"] default "",
+  attributes.method,
+  if (payload == null) null else read(payload, "application/octet-stream"),
+  attributes.headers.*"x-target-header" default [],
+  (attributes.headers["x-target-insecure"] default "false") as Boolean,
+  attributes.headers["x-target-user"] default "",
+  attributes.headers["x-target-auth-type"] default "basic",
+  attributes.headers["content-type"] default ""
 )]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>
