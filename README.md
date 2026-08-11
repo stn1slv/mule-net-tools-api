@@ -39,7 +39,7 @@ Change `pass` from its default before you deploy this anywhere real. See [Securi
 
 This version requires **Mule runtime 4.9 or later, running on Java 17**. Mule 4.9 does not run on Java 11, so this is a single combination rather than a choice.
 
-If you need to deploy to a runtime on Mule 4.4, 4.6 or 4.8, use release [2.5.1](https://github.com/stn1slv/mule-net-tools/releases/tag/2.5.1) or earlier, which targets Mule 4.1.3 and above.
+If you need to deploy to a runtime on Mule 4.4, 4.6 or 4.8, use release [2.5.1](https://github.com/mulesoft-labs/net-tools-api/releases/tag/2.5.1) or earlier, which targets Mule 4.1.3 and above. That release predates this fork, so it lives on the upstream releases page.
 
 ## Configuration
 
@@ -365,8 +365,9 @@ Latest builds are on the [releases page](https://github.com/stn1slv/mule-net-too
 
 # References
 
-- [Runtime Fabric: configure ingress](https://docs.mulesoft.com/runtime-fabric/latest/enable-inbound-traffic)
+- [Configuring Ingress Endpoints for Mule App Deployment (RTF)](https://docs.mulesoft.com/runtime-fabric/latest/configure-ingress-endpoints)
+- [Configuring Ingress in Runtime Fabric](https://docs.mulesoft.com/runtime-fabric/latest/configure-ingress)
 - [Enable Last Mile Security in RTF](https://help.mulesoft.com/s/article/How-to-Enable-both-Last-Mile-Security-and-Mutual-TLS-in-Runtime-Fabric)
 - [CloudHub 2.0 Infrastructure Considerations](https://docs.mulesoft.com/cloudhub-2/ch2-comparison#infrastructure-considerations)
-- [CloudHub 1.0 Load Balancer Architecture](https://docs.mulesoft.com/cloudhub-1/lb-architecture)
-- [Deploying to a standalone Mule runtime](https://docs.mulesoft.com/mule-runtime/latest/deploying-to-a-cluster)
+- [Dedicated Load Balancer Architecture (CloudHub 1.0)](https://docs.mulesoft.com/cloudhub/lb-architecture)
+- [On-Premises Deployment Model](https://docs.mulesoft.com/mule-runtime/latest/mule-deployment-model)
