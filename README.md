@@ -131,12 +131,14 @@ In other words, you send the request you want relayed, and add headers saying wh
 | Header | Required | Purpose |
 |---|---|---|
 | `x-target-url` | yes | The target URL. Must be `http` or `https`. |
-| `x-target-h-<name>` | no | Sends `<name>` to the target with this value. Use one per header, e.g. `x-target-h-client-secret: zwx`. |
+| `x-target-h-<name>` | no | Sends `<name>` to the target with this value, e.g. `x-target-h-client-secret: zwx` sends `client-secret: zwx`. One per header; see below. |
 | `x-target-insecure` | no | `true` skips TLS certificate verification. Defaults to `false`. |
 | `x-target-credentials` | no | Credentials for the target. `user:password` for basic; the token alone for bearer. |
 | `x-target-auth-type` | no | `basic` or `bearer`. Defaults to `basic`, and is ignored without `x-target-credentials`. |
 
 Header names are case-insensitive, so `X-Target-Url` works just as well.
+
+There is no request body parameter and no method parameter: the body you send is the body the target gets, and the method you use is the method it receives.
 
 ### Examples
 
@@ -176,15 +178,32 @@ curl -u vpc-tools:SomePass -X DELETE \
   "$BASE/curl"
 ```
 
-Add headers for the target, repeating the parameter as needed:
+### Sending headers to the target
+
+Prefix the header name with `x-target-h-`. Whatever follows the prefix is the name the target receives:
+
+```
+x-target-h-client-secret: zwx      ->  client-secret: zwx
+x-target-h-accept: application/json ->  accept: application/json
+```
+
+Send as many as you need. Each is a separate header, so there is no limit and nothing is lost:
 
 ```
 curl -u vpc-tools:SomePass \
   -H 'x-target-url: https://internal.example.com/orders' \
-  -H 'x-target-h-x-api-key: abc123' \
+  -H 'x-target-h-client-id: zsd' \
+  -H 'x-target-h-client-secret: zwx' \
   -H 'x-target-h-accept: application/json' \
   "$BASE/curl"
 ```
+
+Two things to know:
+
+- **Target header names arrive in lowercase**, because header names are normalised on the way in. HTTP treats them case-insensitively and HTTP/2 requires lowercase, so this makes no difference to the target.
+- **The name must be a valid HTTP header name**, so no spaces. Values are unrestricted apart from the rules in [Limits and safeguards](#limits-and-safeguards).
+
+This replaces the repeated `x-target-header` used in earlier 3.0 pre-releases. Repeating one header name proved unreliable: infrastructure in front of the app folded the duplicates and kept only the last, so all but one header was silently dropped. One header name per target header cannot be folded.
 
 ### Authenticating to the target
 
@@ -265,6 +284,7 @@ Every 2.x call to `/api/curl` needs changing. The other endpoints are unchanged.
 | `?url=...` | `-H 'x-target-url: ...'` |
 | `?method=PUT` | call the API with `-X PUT` |
 | `?header=Name:value` | `-H 'x-target-h-name: value'` |
+| `?header=A:1&header=B:2` *(repeated)* | `-H 'x-target-h-a: 1' -H 'x-target-h-b: 2'` — one prefixed header each, never a repeated header name |
 | `?insecure=true` | `-H 'x-target-insecure: true'` |
 | `?user=alice:secret` | `-H 'x-target-credentials: alice:secret'` |
 | `?authType=bearer` | `-H 'x-target-auth-type: bearer'` |
