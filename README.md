@@ -124,7 +124,7 @@ It returns `curl --version`: the version, TLS backend and supported protocols. W
 `/api/curl` relays an HTTP request from the worker to a target. Two rules make it predictable:
 
 1. **The method you call it with is the method the target receives.** A `PUT` here sends a `PUT` there.
-2. **Your request body and its content type are passed straight through.** The body is relayed byte for byte, and the target is told the same `Content-Type` you sent.
+2. **Your request body and its content type are passed straight through.** The body is relayed byte for byte, and the target is told the same `Content-Type` you sent. If you send a body without a `Content-Type`, there is nothing to forward and curl falls back to labelling it `application/x-www-form-urlencoded`, so set one.
 
 In other words, you send the request you want relayed, and add headers saying where to send it.
 
@@ -216,6 +216,7 @@ Errors from the API layer return JSON:
 | `401` | *(empty)* | Missing or wrong Basic Authentication credentials |
 | `404` | `{"message": "Resource not found"}` | Unknown path under `/api` |
 | `405` | `{"message": "Method not allowed"}` | Right path, wrong method, such as `POST /api/ping` or `HEAD /api/curl` |
+| `413` | *(plain text)* | A `/api/curl` request body larger than 10 MiB |
 
 Paths outside `/api`, including `/`, return a bare `404` from the HTTP connector with no body. Nothing is served there.
 
@@ -228,13 +229,15 @@ The curl endpoint runs a real `curl` on the worker with input you supply, so it 
 | Connect timeout | 10 seconds | A blackholed host fails quickly instead of holding a worker thread open |
 | Total transfer time | 30 seconds | Same |
 | Response size | 10 MiB | The whole body is buffered in memory, so a larger response is refused rather than risking the worker |
+| Request body size | 10 MiB | Same reason in the other direction: the body you send is read into memory before it is handed to curl. Enforced from `Content-Length`, so a chunked request with no declared length is not covered |
 | Protocols | `http` and `https` only | On the original request and on every redirect, so `file://` cannot read worker files |
 | URL globbing | disabled | `http://10.0.0.[1-254]/` is one literal address, not 254 requests each with its own timeout |
 | Header values | may not start with `@` or contain line breaks | A leading `@` makes curl read a local file and send every line as a header, disclosing worker files. A line break lets a caller append headers or write a whole second request line |
 
-Two behaviours worth knowing:
+Three behaviours worth knowing:
 
-- **The target's `Content-Type` comes from your request.** If you want the target to receive something different from what you sent, override it with `x-target-header: Content-Type: ...`, which always wins.
+- **The target's `Content-Type` comes from your request.** If you want the target to receive something different from what you sent, override it with `x-target-header: Content-Type: ...`, which always wins. With no body, no `Content-Type` is sent at all.
+- **Keep `x-target-*` values to ASCII.** HTTP header values are conventionally decoded as ISO-8859-1 rather than UTF-8, so a non-ASCII value such as `X-Name: café`, or a non-ASCII password in `x-target-credentials`, may not reach the target as you typed it. This has not been measured against the Mule HTTP connector, so treat it as a caution rather than a documented behaviour, and pre-encode anything outside ASCII. In 2.x these were query parameters, which were percent-decoded as UTF-8; this is the one thing the old design did better.
 - **Redirects are followed**, and because the method is set explicitly the *same* method is used on every hop. A redirected `POST` therefore arrives at the final host as a `POST`, but **curl does not resend the body**, so the final request carries an empty payload. If a target redirects, treat the response as evidence about routing rather than about how it handles your payload.
 
 # Security

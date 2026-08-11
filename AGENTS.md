@@ -78,6 +78,8 @@ remove one without understanding what it stops.
 | `--` before the URL | Otherwise a URL such as `-oFILE` is parsed as a curl option. |
 | `--connect-timeout` / `--max-time` | There was no timeout at all; an unresponsive target pinned a Mule worker thread indefinitely. |
 | `-sS` | Keeps curl's progress meter, which it writes to stderr whenever stdout is not a terminal, out of the text returned to the caller. Errors still surface. `execute()` merges stderr into stdout with `redirectErrorStream(true)`, so this is presentation rather than the deadlock guard it originally was. |
+| reject `\r` and `\n` in the forwarded `Content-Type` | Since 3.0 the inbound `Content-Type` becomes a third source of `-H` arguments, so it needs the same line-break check as the caller-supplied headers. The HTTP connector should already make a CRLF-bearing header value unreachable; this is defence in depth. |
+| the `Content-Type` block runs **after** the header loop | That ordering is what makes an explicit `x-target-header: Content-Type:` win over the inbound one. Hoisting it above the loop would silently invert the documented precedence. `hasContentTypeHeader` compares the name before the first colon, with whitespace stripped, rather than matching a `content-type:` prefix, so `Content-Type : x` is still recognised as an override. |
 
 The verb allowlist is enforced twice. Since 3.0 the primary enforcement is
 structural: the RAML declares exactly `get`, `post`, `put`, `patch` and `delete`
@@ -182,6 +184,28 @@ The body reaches Java as `byte[]`, not `String`. A `String` forces a decode and 
 re-encode, which cannot be byte-exact for a payload that is not valid UTF-8 or is
 not text at all.
 
+`curl-request` refuses a body over 10 MiB before the transform, by reading
+`Content-Length` rather than the payload, so nothing is buffered in order to
+decide. Without it an authenticated caller could `PUT` a multi-gigabyte body and
+`read()` would pull all of it into the heap of a small worker. The limit matches
+the cap that `max-filesize` puts on the response, which exists for the same
+reason. **A chunked request declares no length and so is not covered.** Closing
+that gap means streaming the body into curl's stdin instead of passing a
+`byte[]`, which is a larger change than it looks.
+
+Two APIkit behaviours worth knowing about `x-target-header`, both invisible in
+the source and both found by decompiling `mule-apikit-module` 1.12.4:
+
+- It parses as `array=true, repeat=true`, which is what stops APIkit answering
+  "Header x-target-header is not repeatable" with a 400. The `items:`-without-`type: array`
+  shape in the RAML does infer an array. Do not "tidy" it away.
+- Values are routed through `DummyAttributeDeserializer`, which **strips a
+  surrounding pair of double quotes** and unescapes `\"` inside. So
+  `x-target-header: "Authorization: Bearer abc"` reaches curl without the quotes,
+  and a value that legitimately begins and ends with `"` cannot be sent verbatim.
+  The comma-splitting deserializer is not active, because no
+  `arrayHeaderDelimiter` is configured on `<apikit:config>`.
+
 ## Releasing
 
 Pushing a version tag runs `.github/workflows/release.yml`, which builds and
@@ -214,7 +238,7 @@ is always wrong here: the parent was archived on 4 May 2024 and is read-only.
 Always target this repository explicitly:
 
 ```
-gh pr create --repo stn1slv/mule-net-tools-api --base main --head <branch>
+gh pr create --repo stn1slv/mule-net-tools --base main --head <branch>
 ```
 
 The default branch here is `main`. `master` is the archived parent's default and
@@ -223,10 +247,10 @@ is not a branch of this repository.
 Then confirm it landed where you meant, because the failure is silent:
 
 ```
-gh pr view <n> --repo stn1slv/mule-net-tools-api --json baseRefName,url
+gh pr view <n> --repo stn1slv/mule-net-tools --json baseRefName,url
 ```
 
 The same applies to `gh issue`, `gh release` and any other `gh` command that
-resolves a default repository. `origin` is `stn1slv/mule-net-tools-api` (renamed
+resolves a default repository. `origin` is `stn1slv/mule-net-tools` (renamed
 from `mulesoft-net-tools-api`, so old URLs still redirect); `upstream` is the
 archived parent.

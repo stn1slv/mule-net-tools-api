@@ -139,6 +139,32 @@ output application/json
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
 	<sub-flow name="curl-request">
+		<!-- Refuse an oversized body before anything materialises it. read() below pulls
+		     the whole request into heap, and 3.0 widened what can get here: 2.x bounded
+		     this incidentally, because only three media types were accepted and a GET
+		     discarded its body, whereas now every verb relays a body of any type. The
+		     limit matches the 10 MiB cap that max-filesize puts on the response side,
+		     which exists for the same reason.
+
+		     This reads Content-Length rather than the payload, so nothing is buffered to
+		     decide. A chunked request declares no length and so is not covered; that is a
+		     known gap, and closing it would mean streaming the body to curl's stdin
+		     rather than passing a byte[]. -->
+		<choice doc:name="Body within the size limit?">
+			<when expression='#[((attributes.headers["content-length"] default "") matches /^[0-9]+$/) and ((attributes.headers["content-length"] as Number) > 10485760)]'>
+				<ee:transform doc:name="Refuse oversized body">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output text/plain
+---
+"Request body exceeds the 10485760 byte limit."]]></ee:set-payload>
+					</ee:message>
+					<ee:variables>
+						<ee:set-variable variableName="httpStatus">413</ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</when>
+			<otherwise>
 		<ee:transform doc:name="Run curl" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6" >
 			<ee:message >
 				<ee:set-payload ><![CDATA[%dw 2.0
@@ -163,6 +189,8 @@ NetworkUtils::curl(
 )]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>
+			</otherwise>
+		</choice>
     </sub-flow>
     <flow name="get:\dns:net-tools-config">
         <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" doc:id="2eb37294-21d7-412a-8ab6-8da73008b111">

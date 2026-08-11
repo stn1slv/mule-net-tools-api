@@ -179,7 +179,20 @@ public class NetworkUtils {
 			return false;
 		}
 		for (String header : headers) {
-			if (header != null && header.trim().toLowerCase(Locale.ROOT).startsWith("content-type:")) {
+			if (header == null) {
+				continue;
+			}
+			// Compare the name before the first colon rather than matching a "content-type:"
+			// prefix. A caller writing "Content-Type : application/xml", with a space before
+			// the colon, passes the validation above but would fail a prefix match, so both
+			// it and the inbound type would be sent and the target would see two
+			// content-type headers. The header is malformed either way, but an explicit
+			// override is documented to always win, so it has to be recognised.
+			int colon = header.indexOf(':');
+			if (colon < 0) {
+				continue;
+			}
+			if ("content-type".equalsIgnoreCase(header.substring(0, colon).trim())) {
 				return true;
 			}
 		}
