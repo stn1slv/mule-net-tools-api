@@ -195,12 +195,24 @@ import java!com::mulesoft::tool::network::NetworkUtils
 //
 //  Header names are lowercase because the HTTP connector normalises inbound names
 //  to lowercase before they reach attributes.headers. Callers may use any case.
+//
+//  Target headers arrive one per inbound header, as x-target-h-<name>: <value>,
+//  and each is rebuilt into the "name: value" form curl's -H expects. They are not
+//  a repeated x-target-header: repeated header names were verified to be folded to
+//  a single value somewhere between the caller and this flow, so only the last
+//  survived and every earlier one was silently lost. One header name per target
+//  header cannot be folded. 11 is the length of the "x-target-h-" prefix, and the
+//  size check drops a bare "x-target-h-" that would otherwise send a nameless
+//  header.
+var targetHeaders = (attributes.headers default {})
+  filterObject ((v, k) -> ((k as String) startsWith "x-target-h-") and (sizeOf(k as String) > 11))
+  pluck ((v, k) -> ((k as String)[11 to -1]) ++ ": " ++ (v as String))
 ---
 NetworkUtils::curl(
   attributes.headers["x-target-url"] default "",
   attributes.method,
   if (payload == null) null else read(payload, "application/octet-stream"),
-  attributes.headers.*"x-target-header" default [],
+  targetHeaders default [],
   (attributes.headers["x-target-insecure"] default "false") as Boolean,
   attributes.headers["x-target-credentials"] default "",
   attributes.headers["x-target-auth-type"] default "basic",

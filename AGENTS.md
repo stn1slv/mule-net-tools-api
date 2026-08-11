@@ -109,7 +109,7 @@ remove one without understanding what it stops.
 | `-sS` | Keeps curl's progress meter, which it writes to stderr whenever stdout is not a terminal, out of the text returned to the caller. Errors still surface. `execute()` merges stderr into stdout with `redirectErrorStream(true)`, so this is presentation rather than the deadlock guard it originally was. |
 | reject `\r` and `\n` in the forwarded `Content-Type` | Since 3.0 the inbound `Content-Type` becomes a third source of `-H` arguments, so it needs the same line-break check as the caller-supplied headers. The HTTP connector should already make a CRLF-bearing header value unreachable; this is defence in depth. |
 | `reinterpretAsUtf8` on every header-derived value | Header values carry no charset and are decoded as ISO-8859-1 by convention, so a UTF-8 `café` arrives as `cafÃ©`. The ISO-8859-1 round trip is lossless, so the original bytes are recovered and decoded as UTF-8. It runs **before** the CRLF and `@` checks so validation sees the final value. Deliberately conservative: ASCII is returned untouched, anything already above U+00FF is left alone, and strict decoding means a genuinely non-UTF-8 value keeps its characters instead of becoming U+FFFD. |
-| the `Content-Type` block runs **after** the header loop | That ordering is what makes an explicit `x-target-header: Content-Type:` win over the inbound one. Hoisting it above the loop would silently invert the documented precedence. `hasContentTypeHeader` compares the name before the first colon, with whitespace stripped, rather than matching a `content-type:` prefix, so `Content-Type : x` is still recognised as an override. |
+| the `Content-Type` block runs **after** the header loop | That ordering is what makes an explicit `x-target-h-content-type` win over the inbound one. Hoisting it above the loop would silently invert the documented precedence. `hasContentTypeHeader` compares the name before the first colon, with whitespace stripped, rather than matching a `content-type:` prefix, so `Content-Type : x` is still recognised as an override. |
 
 The verb allowlist is enforced twice. Since 3.0 the primary enforcement is
 structural: the RAML declares exactly `get`, `post`, `put`, `patch` and `delete`
@@ -131,7 +131,7 @@ network. Do not describe local disclosure as "closed" in documentation.
 **Do not log the target URL.** Since 3.0 the parameters arrive as `x-target-*`
 request headers rather than query parameters, so the query string is no longer
 the danger it was. The danger moved rather than disappeared: `x-target-credentials`
-carries credentials, `x-target-header` carries `Authorization`, and
+carries credentials, an `x-target-h-` header can carry `Authorization`, and
 `x-target-url` can embed credentials as `https://user:pass@host`. Log none of
 them, and do not "restore" target logging on the grounds that the query string is
 now empty.
@@ -261,18 +261,28 @@ reason. **A chunked request declares no length and so is not covered.** Closing
 that gap means streaming the body into curl's stdin instead of passing a
 `byte[]`, which is a larger change than it looks.
 
-Two APIkit behaviours worth knowing about `x-target-header`, both invisible in
-the source and both found by decompiling `mule-apikit-module` 1.12.4:
+**Target headers use a prefix, not a repeated header name.** Each one is sent as
+`x-target-h-<name>: <value>` and rebuilt into the `name: value` form curl's `-H`
+expects. 3.0 originally declared a repeatable `x-target-header` in the RAML, and
+in a real RTF deployment only the **last** occurrence survived: sending
+`client-secret` then `client-id` delivered only `client-id`, and reversing the
+order reversed which one was lost. A single occurrence always arrived.
 
-- It parses as `array=true, repeat=true`, which is what stops APIkit answering
-  "Header x-target-header is not repeatable" with a 400. The `items:`-without-`type: array`
-  shape in the RAML does infer an array. Do not "tidy" it away.
-- Values are routed through `DummyAttributeDeserializer`, which **strips a
-  surrounding pair of double quotes** and unescapes `\"` inside. So
-  `x-target-header: "Authorization: Bearer abc"` reaches curl without the quotes,
-  and a value that legitimately begins and ends with `"` cannot be sent verbatim.
-  The comma-splitting deserializer is not active, because no
-  `arrayHeaderDelimiter` is configured on `<apikit:config>`.
+The culprit was never pinned down. `NetworkUtils` forwards repeated headers
+correctly against a local echo server, DataWeave's `.*` multi-value selector
+returns every value, and APIkit's `HeadersValidator.analyseRequestHeaders` looks
+like it preserves them: `deserializeListOfValues` builds a full `ArrayList` and
+the result is stored with `MultiMap.put(key, Collection)`. That leaves the
+ingress or the client folding duplicates by overwrite. One header name per target
+header sidesteps the question entirely, so do not "simplify" it back into a
+repeated header.
+
+Consequences worth knowing: target header names arrive lowercased, because the
+connector normalises inbound names. HTTP/1.1 treats names case-insensitively and
+HTTP/2 requires lowercase, so this is harmless. And the names cannot be declared
+in the RAML, since they are not known in advance; they are undeclared headers,
+which APIkit passes through untouched as long as strict header validation stays
+off.
 
 ## Releasing
 

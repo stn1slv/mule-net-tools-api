@@ -131,7 +131,7 @@ In other words, you send the request you want relayed, and add headers saying wh
 | Header | Required | Purpose |
 |---|---|---|
 | `x-target-url` | yes | The target URL. Must be `http` or `https`. |
-| `x-target-header` | no | A `name: value` header for the target request. Repeat for multiple headers. |
+| `x-target-h-<name>` | no | Sends `<name>` to the target with this value. Use one per header, e.g. `x-target-h-client-secret: zwx`. |
 | `x-target-insecure` | no | `true` skips TLS certificate verification. Defaults to `false`. |
 | `x-target-credentials` | no | Credentials for the target. `user:password` for basic; the token alone for bearer. |
 | `x-target-auth-type` | no | `basic` or `bearer`. Defaults to `basic`, and is ignored without `x-target-credentials`. |
@@ -181,8 +181,8 @@ Add headers for the target, repeating the parameter as needed:
 ```
 curl -u vpc-tools:SomePass \
   -H 'x-target-url: https://internal.example.com/orders' \
-  -H 'x-target-header: X-Api-Key: abc123' \
-  -H 'x-target-header: Accept: application/json' \
+  -H 'x-target-h-x-api-key: abc123' \
+  -H 'x-target-h-accept: application/json' \
   "$BASE/curl"
 ```
 
@@ -196,7 +196,7 @@ curl -u vpc-tools:SomePass \
 -H 'x-target-credentials: eyJhbGciOiJIUzI1NiJ9...' -H 'x-target-auth-type: bearer'
 ```
 
-Both are equivalent to setting `x-target-header: Authorization: ...` yourself, so use whichever is clearer. `x-target-credentials` exists mainly so basic does not require you to base64-encode by hand. Anything else, such as API keys, signed requests or custom schemes, goes through `x-target-header`.
+Both are equivalent to setting `x-target-h-authorization: ...` yourself, so use whichever is clearer. `x-target-credentials` exists mainly so basic does not require you to base64-encode by hand. Anything else, such as API keys, signed requests or custom schemes, goes through `x-target-h-<name>`.
 
 Only these two schemes are supported, on purpose. curl can also do `digest`, `ntlm` and `negotiate`, but those target legacy on-prem stacks rather than APIs and were deliberately left out.
 
@@ -237,8 +237,8 @@ The curl endpoint runs a real `curl` on the worker with input you supply, so it 
 
 Three behaviours worth knowing:
 
-- **The target's `Content-Type` comes from your request.** If you want the target to receive something different from what you sent, override it with `x-target-header: Content-Type: ...`, which always wins. With no body, no `Content-Type` is sent at all.
-- **`x-target-*` values are treated as UTF-8.** Send `x-target-header: X-Name: café` and the target receives `café` as UTF-8, and a non-ASCII password in `x-target-credentials` is encoded as UTF-8. HTTP header values carry no charset and are decoded as ISO-8859-1 by convention, so this app reinterprets them as UTF-8, which is what callers almost always send. A value that is not valid UTF-8 keeps its characters rather than being mangled, and is still sent out as UTF-8. Note the asymmetry with the request body, which is byte-transparent: headers are re-encoded, bodies are not.
+- **The target's `Content-Type` comes from your request.** If you want the target to receive something different from what you sent, override it with `x-target-h-content-type: ...`, which always wins. With no body, no `Content-Type` is sent at all.
+- **`x-target-*` values are treated as UTF-8.** Send `x-target-h-x-name: café` and the target receives `café` as UTF-8, and a non-ASCII password in `x-target-credentials` is encoded as UTF-8. HTTP header values carry no charset and are decoded as ISO-8859-1 by convention, so this app reinterprets them as UTF-8, which is what callers almost always send. A value that is not valid UTF-8 keeps its characters rather than being mangled, and is still sent out as UTF-8. Note the asymmetry with the request body, which is byte-transparent: headers are re-encoded, bodies are not.
 - **Redirects are followed**, and because the method is set explicitly the *same* method is used on every hop. A redirected `POST` therefore arrives at the final host as a `POST`, but **curl does not resend the body**, so the final request carries an empty payload. If a target redirects, treat the response as evidence about routing rather than about how it handles your payload.
 
 # Security
@@ -247,7 +247,7 @@ Three behaviours worth knowing:
 
 Anyone who can authenticate to this app can therefore reach whatever the worker can reach. **Treat access to this tool as equivalent to shell access on the worker's network, and set a strong `pass`.**
 
-Credentials you send for the target, whether in `x-target-credentials` or an `x-target-header`, stay out of the application log: it records only the scheme, method and path. Anything in front of the app that logs request headers would still record them.
+Credentials you send for the target, whether in `x-target-credentials` or an `x-target-h-` header, stay out of the application log: it records only the scheme, method and path. Anything in front of the app that logs request headers would still record them.
 
 # Network considerations
 
@@ -264,7 +264,7 @@ Every 2.x call to `/api/curl` needs changing. The other endpoints are unchanged.
 |---|---|
 | `?url=...` | `-H 'x-target-url: ...'` |
 | `?method=PUT` | call the API with `-X PUT` |
-| `?header=Name:value` | `-H 'x-target-header: Name: value'` |
+| `?header=Name:value` | `-H 'x-target-h-name: value'` |
 | `?insecure=true` | `-H 'x-target-insecure: true'` |
 | `?user=alice:secret` | `-H 'x-target-credentials: alice:secret'` |
 | `?authType=bearer` | `-H 'x-target-auth-type: bearer'` |
