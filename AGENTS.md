@@ -32,6 +32,35 @@ fails under Maven 3.9.x with a missing `BasicRepositoryConnectorFactory`, and
 The build validates the Mule XML, the RAML, and the mapping between them, so a
 successful `package` catches a surprising amount. It does not run the app.
 
+### Connector versions are gated by the runtime's SDK, not by the build
+
+A connector newer than the target runtime builds and packages perfectly and then
+**fails to deploy**. Mule 4.9.7 shipped an `org.mule.sdk.api.meta.JavaVersion`
+enum with no `JAVA_25` constant, and `mule-http-connector` 1.12.0 declares
+`JAVA_25` in its `@JavaVersionSupport`. At deployment the runtime parses that
+annotation and throws:
+
+```
+DeploymentInitException: EnumConstantNotPresentException: org.mule.sdk.api.meta.JavaVersion.JAVA_25
+  at JavaExtensionModelParser.parseSupportedJavaVersions(JavaExtensionModelParser.java:150)
+```
+
+The app never starts. This is not about which Java the worker runs; the worker
+was on JDK 17 and that was fine. It is the enum constant being absent from the
+runtime's copy of the SDK.
+
+`mule-http-connector` is pinned to 1.11.3 for this reason, and it pulls in
+`mule-sockets-connector` 1.2.7 transitively (1.2.9 has the same problem). Before
+raising either, extract the plugin jar and check:
+
+```
+unzip -o -q <plugin>-mule-plugin.jar -d /tmp/p && grep -ra -o "JAVA_2[0-9]" /tmp/p | sort -u
+```
+
+Anything above the target runtime's highest known constant will not deploy. Note
+that `grep` on the *application* jar will not find it: the plugin jars are nested
+and compressed, so they have to be extracted first.
+
 ## Testing
 
 **There is no test infrastructure.** No JUnit, no MUnit, no test sources. Do not

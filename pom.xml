@@ -20,7 +20,13 @@
 		<app.runtime>4.9.0</app.runtime>
 		<mule.maven.plugin.version>4.10.1</mule.maven.plugin.version>
 		<apikit.module.version>1.12.4</apikit.module.version>
-		<http.connector.version>1.12.0</http.connector.version>
+		<!-- Do not raise this without checking the connector's @JavaVersionSupport
+		     against the target runtime. 1.12.0 (and mule-sockets-connector 1.2.9, which
+		     it pulls in) declare JAVA_25, and the org.mule.sdk.api.meta.JavaVersion enum
+		     shipped with Mule 4.9.7 has no such constant, so deployment fails at
+		     extension-model load with EnumConstantNotPresentException before the app
+		     starts. Verified against a CloudHub 4.9.7 worker on 11 August 2026. -->
+		<http.connector.version>1.11.3</http.connector.version>
 		<spring.module.version>2.1.2</spring.module.version>
 
 		<spring.version>5.3.27</spring.version>
