@@ -7,16 +7,10 @@
 	xsi:schemaLocation="
 	http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
 	
-	<flow name="http-ui" doc:id="26329426-60ba-49ad-ae04-ac3bfb607dea" initialState="${httpListener}">
-		<http:listener doc:name="Listener"
-			doc:id="945b4a80-dcdd-460e-a520-24f510d84be8" config-ref="http"
-			path="/*" outputMimeType="text/html" />
-		<flow-ref doc:name="ui"
-			doc:id="e74273e3-e138-414c-b6bf-58728820b208" name="ui" />
-	</flow>
-
 	<flow name="http-net-tools-main" initialState="${httpListener}">
-		<http:listener config-ref="http" path="/api/*">
+		<!-- outputMimeType pins the inbound payload's media type so DataWeave does not
+		     parse it. See the matching listener in net-tools.xml for why. -->
+		<http:listener config-ref="http" path="/api/*" outputMimeType="application/octet-stream">
 			<http:response
 				statusCode="#[vars.httpStatus default 200]">
 				<http:headers>#[vars.outboundHeaders default {}]</http:headers>

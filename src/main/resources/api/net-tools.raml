@@ -1,6 +1,6 @@
 #%RAML 1.0
 title: Network connectivity tools
-version: 2.0
+version: 3.0
 securedBy: [basic]
 securitySchemes:
   basic:
@@ -8,37 +8,27 @@ securitySchemes:
 
 traits:
   curlParams:
-    queryParameters:
-      url:
+    headers:
+      x-target-url:
         description: Target URL. Only http and https are allowed.
         type: string
-      method:
-        description: HTTP method to send to the target
-        type: string
-        required: false
-        default: GET
-        enum: [GET, POST, PUT, PATCH, DELETE]
-      header:
-        description: A name:value header for the target request. Repeat for multiple headers.
-        required: false
-        items:
-          type: string
-          example: |
-            Content-Type:application/json
-      insecure:
+      # Headers for the target are not declared here. They are sent one per inbound
+      # header as x-target-h-<name>, so their names are not known in advance and RAML
+      # has nothing to match. See the /curl description for the convention.
+      x-target-insecure:
         description: Skip TLS certificate verification
         type: boolean
         required: false
         default: false
-      user:
+      x-target-credentials:
         description: |
           Credentials for the target. For basic this is user:password; for bearer it is
           the token on its own.
         type: string
         required: false
         example: alice:secret
-      authType:
-        description: Authentication scheme to use with user. Ignored when user is absent.
+      x-target-auth-type:
+        description: Authentication scheme to use with x-target-credentials. Ignored when it is absent.
         type: string
         required: false
         default: basic
@@ -123,8 +113,22 @@ traits:
             example: |
                127.0.0.1
 /curl:
+  description: |
+    Relays an HTTP request from the Mule host to the target named in x-target-url.
+
+    The method you call this resource with is the method the target receives, so a
+    PUT here sends a PUT there. Any request body is forwarded to the target byte for
+    byte, whatever its content type, and the target is told the same Content-Type you
+    sent unless you override it.
+
+    To send a header to the target, prefix its name with x-target-h-. So
+    "x-target-h-client-secret: zwx" makes the target receive "client-secret: zwx",
+    and "x-target-h-content-type: text/xml" overrides the forwarded content type.
+    Send as many as you need; each is a separate header, so nothing is lost the way
+    a repeated header name would be. Target header names arrive in lowercase, which
+    is what HTTP/2 requires and which HTTP/1.1 treats as equivalent.
   get:
-    description: Runs a curl from the Mule host to the specified resource
+    description: Relays a GET to the target
     is: [curlParams]
     responses:
       200:
@@ -133,21 +137,41 @@ traits:
             example: |
               curl: (7) Failed to connect to 10.200.27.15 port 443: Timed out
   post:
-    description: |
-      Runs a curl with a request body from the Mule host to the specified resource.
-      The Content-Type the target receives is set through the header query parameter
-      and is independent of the content type used to call this API.
+    description: Relays a POST to the target, with this request's body
     is: [curlParams]
-    body:
-      application/json:
-      application/xml:
-      text/plain:
     responses:
       200:
         body:
           text/plain:
             example: |
               HTTP/1.1 201 Created
+  put:
+    description: Relays a PUT to the target, with this request's body
+    is: [curlParams]
+    responses:
+      200:
+        body:
+          text/plain:
+            example: |
+              HTTP/1.1 200 OK
+  patch:
+    description: Relays a PATCH to the target, with this request's body
+    is: [curlParams]
+    responses:
+      200:
+        body:
+          text/plain:
+            example: |
+              HTTP/1.1 200 OK
+  delete:
+    description: Relays a DELETE to the target, with this request's body if it has one
+    is: [curlParams]
+    responses:
+      200:
+        body:
+          text/plain:
+            example: |
+              HTTP/1.1 204 No Content
 
 /ciphertest:
   get:

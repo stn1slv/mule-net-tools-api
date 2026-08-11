@@ -1,60 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
-	xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting"
-	xmlns:spring="http://www.mulesoft.org/schema/mule/spring"
 	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
 	xmlns="http://www.mulesoft.org/schema/mule/core"
 	xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
 	xmlns:http="http://www.mulesoft.org/schema/mule/http"
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd 
-http://www.mulesoft.org/schema/mule/spring http://www.mulesoft.org/schema/mule/spring/current/mule-spring.xsd
-http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
 http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
 
-	<flow name="ui" doc:id="94b97777-bd63-4abb-8093-a5c8ac97aa17">
-		<http:listener doc:name="Listener"
-			doc:id="7e20b485-577c-4530-b2b1-66b6a84d5694" config-ref="https"
-			path="/*" outputMimeType="text/html" />
-		<http:basic-security-filter
-			doc:name="Basic security filter"
-			doc:id="cb77f47e-923a-4195-86fc-23bbf2f01311" realm="mule" />
-		<spring:authorization-filter
-			requiredAuthorities="ROLE_ADMIN" />
-		<ee:transform doc:name="Transform Message"
-			doc:id="610d96e5-97f6-407d-ab81-fa234a5794bc">
-			<ee:message>
-				<ee:set-payload
-					resource="dwl/setWebResourcePayload.dwl" />
-			</ee:message>
-			<ee:variables>
-				<ee:set-variable
-					resource="dwl/setWebResourceMimeType.dwl" variableName="mimeType" />
-			</ee:variables>
-		</ee:transform>
-		<choice doc:name="Which MIME type?"
-			doc:id="7fa94994-1832-4b21-b557-691274259e46">
-			<when expression='#[vars.mimeType == "css"]'>
-				<set-payload value="#[payload]"
-					doc:name="Set MIME type as CSS"
-					doc:id="d8334850-64ab-448a-abe3-1611772f58b8" mimeType="text/css" />
-			</when>
-			<when expression='#[vars.mimeType == "js"]'>
-				<set-payload value="#[payload]"
-					doc:name="Set MIME type as JavaScript"
-					doc:id="9595f13e-4c58-4707-9818-c3bcc1d33a0a"
-					mimeType="application/javascript" />
-			</when>
-			<otherwise>
-				<set-payload value="#[payload]"
-					doc:name="Set MIME type as HTML"
-					doc:id="1e21a771-c190-40db-984f-9805208c3ca2" mimeType="text/html" />
-			</otherwise>
-		</choice>
-	</flow>
 	<flow name="net-tools-main"
 		doc:id="6f86a93f-9de9-4cf8-b092-b6a4b23c42f4">
-		<http:listener config-ref="https" path="/api/*">
+		<!-- outputMimeType pins the media type of the *inbound* payload. Without it the
+		     listener tags the body with the request's own Content-Type, and DataWeave then
+		     resolves `payload` to a parsed Object for any type it has a reader for, so
+		     read(payload, "application/octet-stream") in curl-request fails outright for
+		     application/json and application/xml. Verified against a standalone DataWeave
+		     engine: read() is byte-exact at application/octet-stream and text/plain, and
+		     throws UnexpectedFunctionCallTypesException once the payload carries a
+		     parseable media type. The caller's real Content-Type is still available, and
+		     is read from attributes.headers["content-type"] for forwarding. -->
+		<http:listener config-ref="https" path="/api/*" outputMimeType="application/octet-stream">
 			<http:response
 				statusCode="#[vars.httpStatus default 200]">
 				<http:headers>#[vars.outboundHeaders default {}]</http:headers>
@@ -66,10 +31,13 @@ http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/
 			</http:error-response>
 		</http:listener>
 		<http:basic-security-filter doc:name="Basic security filter" realm="mule" />
-		<!-- Not requestUri: the query string carries the header parameter, so logging it
-		     would write Authorization values and any credentials embedded in the target url
-		     straight into the application log. The trade-off is that the log no longer
-		     records which target was probed.
+		<!-- Path only, and deliberately not the target. Since 3.0 the curl parameters
+		     arrive as x-target-* request headers rather than query parameters, so the
+		     query string is no longer the danger it was. The danger moved rather than
+		     disappeared: x-target-credentials carries credentials, x-target-header
+		     carries Authorization, and x-target-url can embed credentials as
+		     https://user:pass@host. None of them are logged. Do not "restore" target
+		     logging on the grounds that the query string is now empty.
 
 		     rawRequestPath rather than requestPath, because requestPath is URL-decoded, so
 		     a request to /api/%0aINFO%20forged would decode into a real newline and let the
@@ -160,39 +128,100 @@ output application/json
             </on-error-propagate>
         </error-handler>
     </flow>
+	<!-- One flow per verb, and each does nothing but delegate. The method this API is
+	     called with is the method the target receives, so there is no method parameter
+	     to validate: APIkit answers 405 for anything not declared in the RAML. All the
+	     logic lives in curl-request, which holds the only DataWeave-to-Java call. -->
 	<flow name="get:\curl:net-tools-config">
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
-	<flow name="post:\curl:application\json:net-tools-config">
-		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "application/json")]' doc:name="Set body" />
+	<flow name="post:\curl:net-tools-config">
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
-	<flow name="post:\curl:application\xml:net-tools-config">
-		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "application/xml")]' doc:name="Set body" />
+	<flow name="put:\curl:net-tools-config">
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
-	<flow name="post:\curl:text\plain:net-tools-config">
-		<set-variable variableName="curlBody" value='#[if (payload == null) "" else write(payload, "text/plain")]' doc:name="Set body" />
+	<flow name="patch:\curl:net-tools-config">
+		<flow-ref name="curl-request" doc:name="curl-request" />
+    </flow>
+	<flow name="delete:\curl:net-tools-config">
 		<flow-ref name="curl-request" doc:name="curl-request" />
     </flow>
 	<sub-flow name="curl-request">
-		<ee:transform doc:name="Run curl" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6" >
-			<ee:message >
-				<ee:set-payload ><![CDATA[%dw 2.0
+		<!-- Refuse an oversized body before anything materialises it. read() below pulls
+		     the whole request into heap, and 3.0 widened what can get here: 2.x bounded
+		     this incidentally, because only three media types were accepted and a GET
+		     discarded its body, whereas now every verb relays a body of any type. The
+		     limit matches the 10 MiB cap that max-filesize puts on the response side,
+		     which exists for the same reason.
+
+		     This reads Content-Length rather than the payload, so nothing is buffered to
+		     decide. A chunked request declares no length and so is not covered; that is a
+		     known gap, and closing it would mean streaming the body to curl's stdin
+		     rather than passing a byte[]. -->
+		<choice doc:name="Body within the size limit?">
+			<!-- Both operands carry their own `default`, so neither depends on `and`
+			     short-circuiting. The regex test alone would be enough today, but a
+			     reordering or a "simplification" of it would otherwise turn every request
+			     without a Content-Length into a coercion error rather than a 500-free
+			     pass-through. `matches` is a full match, so a malformed length falls
+			     through to <otherwise>; the connector rejects those upstream anyway. -->
+			<when expression='#[((attributes.headers["content-length"] default "") matches /^[0-9]+$/) and (((attributes.headers["content-length"] default "0") as Number) > 10485760)]'>
+				<ee:transform doc:name="Refuse oversized body">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output text/plain
+---
+"Request body exceeds the 10485760 byte limit."]]></ee:set-payload>
+					</ee:message>
+					<ee:variables>
+						<ee:set-variable variableName="httpStatus">413</ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</when>
+			<otherwise>
+				<ee:transform doc:name="Run curl" doc:id="c96eaddb-f56e-4f1a-81ff-ec15df7cb6d6">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
 output application/java
 import java!com::mulesoft::tool::network::NetworkUtils
+//  read(), never write(). write() parses the payload and serialises it again, which
+//  is what used to alter JSON and XML bodies on the way through.
+//
+//  This only works because the listener pins the inbound payload to
+//  application/octet-stream. Left with the request's own Content-Type, DataWeave
+//  resolves `payload` to a parsed Object for any format it has a reader for, and
+//  read() then fails outright for application/json and application/xml.
+//
+//  Header names are lowercase because the HTTP connector normalises inbound names
+//  to lowercase before they reach attributes.headers. Callers may use any case.
+//
+//  Target headers arrive one per inbound header, as x-target-h-<name>: <value>,
+//  and each is rebuilt into the "name: value" form curl's -H expects. They are not
+//  a repeated x-target-header: repeated header names were verified to be folded to
+//  a single value somewhere between the caller and this flow, so only the last
+//  survived and every earlier one was silently lost. One header name per target
+//  header cannot be folded. 11 is the length of the "x-target-h-" prefix, and the
+//  size check drops a bare "x-target-h-" that would otherwise send a nameless
+//  header.
+var targetHeaders = (attributes.headers default {})
+  filterObject ((v, k) -> ((k as String) startsWith "x-target-h-") and (sizeOf(k as String) > 11))
+  pluck ((v, k) -> ((k as String)[11 to -1]) ++ ": " ++ (v as String))
 ---
 NetworkUtils::curl(
-  attributes.queryParams.url,
-  attributes.queryParams.method default "GET",
-  vars.curlBody default "",
-  attributes.queryParams.*header default [],
-  (attributes.queryParams.insecure default "false") as Boolean,
-  attributes.queryParams.user default "",
-  attributes.queryParams.authType default "basic"
+  attributes.headers["x-target-url"] default "",
+  attributes.method,
+  if (payload == null) null else read(payload, "application/octet-stream"),
+  targetHeaders default [],
+  (attributes.headers["x-target-insecure"] default "false") as Boolean,
+  attributes.headers["x-target-credentials"] default "",
+  attributes.headers["x-target-auth-type"] default "basic",
+  attributes.headers["content-type"] default ""
 )]]></ee:set-payload>
-			</ee:message>
-		</ee:transform>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
     </sub-flow>
     <flow name="get:\dns:net-tools-config">
         <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" doc:id="2eb37294-21d7-412a-8ab6-8da73008b111">

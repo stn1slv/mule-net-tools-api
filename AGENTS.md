@@ -2,9 +2,11 @@
 
 Net Tools API is a deployable MuleSoft Mule 4 application. It exposes network
 diagnostic tools (ping, traceroute, dns, tcp socket, curl, TLS certificate and
-cipher tests) as a RAML/APIkit REST API plus a small jQuery web UI, and is
-deployed into a customer's CloudHub VPC to debug connectivity from a Mule worker
-to on-premises systems.
+cipher tests) as a RAML/APIkit REST API, and is deployed into a customer's
+CloudHub VPC to debug connectivity from a Mule worker to on-premises systems.
+
+It is API-only. A jQuery web UI was served from `/*` until 3.0; nothing outside
+`/api` is claimed by a listener now, so those paths return a bare 404.
 
 Read `README.md` for what the tool does and how it is used. This file covers
 what you need to know to change it safely.
@@ -30,6 +32,35 @@ fails under Maven 3.9.x with a missing `BasicRepositoryConnectorFactory`, and
 The build validates the Mule XML, the RAML, and the mapping between them, so a
 successful `package` catches a surprising amount. It does not run the app.
 
+### Connector versions are gated by the runtime's SDK, not by the build
+
+A connector newer than the target runtime builds and packages perfectly and then
+**fails to deploy**. Mule 4.9.7 shipped an `org.mule.sdk.api.meta.JavaVersion`
+enum with no `JAVA_25` constant, and `mule-http-connector` 1.12.0 declares
+`JAVA_25` in its `@JavaVersionSupport`. At deployment the runtime parses that
+annotation and throws:
+
+```
+DeploymentInitException: EnumConstantNotPresentException: org.mule.sdk.api.meta.JavaVersion.JAVA_25
+  at JavaExtensionModelParser.parseSupportedJavaVersions(JavaExtensionModelParser.java:150)
+```
+
+The app never starts. This is not about which Java the worker runs; the worker
+was on JDK 17 and that was fine. It is the enum constant being absent from the
+runtime's copy of the SDK.
+
+`mule-http-connector` is pinned to 1.11.3 for this reason, and it pulls in
+`mule-sockets-connector` 1.2.7 transitively (1.2.9 has the same problem). Before
+raising either, extract the plugin jar and check:
+
+```
+unzip -o -q <plugin>-mule-plugin.jar -d /tmp/p && grep -ra -o "JAVA_2[0-9]" /tmp/p | sort -u
+```
+
+Anything above the target runtime's highest known constant will not deploy. Note
+that `grep` on the *application* jar will not find it: the plugin jars are nested
+and compressed, so they have to be extracted first.
+
 ## Testing
 
 **There is no test infrastructure.** No JUnit, no MUnit, no test sources. Do not
@@ -41,8 +72,17 @@ so flows cannot be exercised locally. Two things you *can* do:
 
 1. **Exercise the Java layer directly.** `NetworkUtils` is a plain class with
    static methods. Compile it with `javac`, point it at a small local HTTP
-   server that echoes the method, headers and body, and assert on what the
-   server received. This is how the curl security behaviour was verified.
+   server built on `com.sun.net.httpserver.HttpServer` that records the method,
+   headers and body it received, and assert on that rather than on curl's
+   output. This is how the curl security behaviour and the 3.0 byte-exact body
+   relay were verified.
+
+   Two traps found doing this. Assert on **bytes**, not strings, or a body that
+   is not valid UTF-8 will appear to survive a round trip it did not. And when
+   checking that `-g` stops URL globbing, count response status lines in curl's
+   own output rather than requests the handler saw: curl sends the literal path
+   `/g[1-5]`, which `HttpServer` rejects with a 400 before the handler runs, so
+   a handler-side counter reads zero and the check fails for the wrong reason.
 2. **Reproduce before fixing.** Every curl hardening flag below traces to an
    exploit that was actually reproduced against a local server first. Keep that
    habit; several plausible-sounding findings turned out to be wrong when tested.
@@ -67,11 +107,20 @@ remove one without understanding what it stops.
 | `--` before the URL | Otherwise a URL such as `-oFILE` is parsed as a curl option. |
 | `--connect-timeout` / `--max-time` | There was no timeout at all; an unresponsive target pinned a Mule worker thread indefinitely. |
 | `-sS` | Keeps curl's progress meter, which it writes to stderr whenever stdout is not a terminal, out of the text returned to the caller. Errors still surface. `execute()` merges stderr into stdout with `redirectErrorStream(true)`, so this is presentation rather than the deadlock guard it originally was. |
+| reject `\r` and `\n` in the forwarded `Content-Type` | Since 3.0 the inbound `Content-Type` becomes a third source of `-H` arguments, so it needs the same line-break check as the caller-supplied headers. The HTTP connector should already make a CRLF-bearing header value unreachable; this is defence in depth. |
+| `reinterpretAsUtf8` on every header-derived value | Header values carry no charset and are decoded as ISO-8859-1 by convention, so a UTF-8 `café` arrives as `cafÃ©`. The ISO-8859-1 round trip is lossless, so the original bytes are recovered and decoded as UTF-8. It runs **before** the CRLF and `@` checks so validation sees the final value. Deliberately conservative: ASCII is returned untouched, anything already above U+00FF is left alone, and strict decoding means a genuinely non-UTF-8 value keeps its characters instead of becoming U+FFFD. |
+| the `Content-Type` block runs **after** the header loop | That ordering is what makes an explicit `x-target-h-content-type` win over the inbound one. Hoisting it above the loop would silently invert the documented precedence. `hasContentTypeHeader` compares the name before the first colon, with whitespace stripped, rather than matching a `content-type:` prefix, so `Content-Type : x` is still recognised as an override. |
 
-The verb allowlist is enforced twice, in the RAML `enum` and in Java. Keep both
-in step. Note that the allowlist is only as strong as the header validation: a
-header value carrying CRLF can write its own request line, which is why the
-line-break check above matters as much as the verb list itself.
+The verb allowlist is enforced twice. Since 3.0 the primary enforcement is
+structural: the RAML declares exactly `get`, `post`, `put`, `patch` and `delete`
+on `/curl`, and APIkit answers 405 for anything else, so the verb reaching Java
+is `attributes.method`. `ALLOWED_METHODS` in Java is kept as defence in depth,
+because `curl` is a public static method that nothing stops another flow from
+calling. Keep the two in step.
+
+The allowlist is only as strong as the header validation: a header value carrying
+CRLF can write its own request line, which is why the line-break check above
+matters as much as the verb list itself.
 
 **What is deliberately not restricted:** `http` and `https` to any reachable
 address. That is the point of the tool, but it means an authenticated caller can
@@ -79,15 +128,70 @@ reach the worker's own listener and, on CloudHub 1.0, the instance metadata
 service. Treat access to this app as equivalent to access to the worker's
 network. Do not describe local disclosure as "closed" in documentation.
 
-**Do not log the query string.** Target headers, including `Authorization`, are
-passed as query parameters, so `attributes.requestUri` would write credentials
-into the application log.
+**Do not log the target URL.** Since 3.0 the parameters arrive as `x-target-*`
+request headers rather than query parameters, so the query string is no longer
+the danger it was. The danger moved rather than disappeared: `x-target-credentials`
+carries credentials, an `x-target-h-` header can carry `Authorization`, and
+`x-target-url` can embed credentials as `https://user:pass@host`. Log none of
+them, and do not "restore" target logging on the grounds that the query string is
+now empty.
 
 The logger records `attributes.rawRequestPath`. Two things are deliberate there:
-not the URI, to keep the query string out, and *raw* rather than `requestPath`
-because the latter is URL-decoded, so `/api/%0aINFO%20forged` would decode into a
-real newline and let a caller forge log entries. `rawRequestPath` is the path as
-received and needs HTTP connector 1.5.0 or later.
+not the URI, and *raw* rather than `requestPath` because the latter is
+URL-decoded, so `/api/%0aINFO%20forged` would decode into a real newline and let a
+caller forge log entries. `rawRequestPath` is the path as received and needs HTTP
+connector 1.5.0 or later.
+
+### Non-ASCII depends on the worker JVM's native encoding
+
+`reinterpretAsUtf8` fixes the first link in the chain, not the whole chain.
+Header values are handed to curl as `ProcessBuilder` arguments, and the JVM
+encodes those with `sun.jnu.encoding`, which follows the OS locale rather than
+`file.encoding`. On a worker with no `LANG` set that can be `ANSI_X3.4-1968`, in
+which case every non-ASCII character in a header becomes `?` on the wire no
+matter what this code does. The same assumption already appears in `execute()`,
+where the `Scanner` is pinned to UTF-8 for exactly this reason.
+
+So non-ASCII header values work when, and only when, the worker JVM's native
+encoding is UTF-8. It was verified end to end on a development machine where it
+is; it has **not** been verified on a worker. If a non-ASCII value arrives at the
+target as `?`, this is where to look, not in `reinterpretAsUtf8`.
+
+The request body is unaffected: it goes to curl's stdin as raw bytes and never
+passes through an argument.
+
+### The worker's curl is 7.76.1
+
+```
+curl 7.76.1 (x86_64-redhat-linux-gnu) libcurl/7.76.1 OpenSSL/3.2.2 zlib/1.2.11 nghttp2/1.43.0
+Release-Date: 2021-04-14
+Protocols: file ftp ftps http https
+Features: alt-svc AsynchDNS GSS-API HTTP2 HTTPS-proxy IPv6 Kerberos Largefile libz NTLM SPNEGO SSL UnixSockets
+```
+
+Development machines run curl 8.x, so a flag that is too new for the worker will
+work locally and fail in the customer's VPC. Check any new flag against 7.76.1.
+
+| Not available | Introduced in |
+|---|---|
+| `--json` | 7.82.0 |
+| `--url-query` | 7.87.0 |
+| `--variable` | 8.3.0 |
+| `%{header_json}` | 7.83.0 |
+| `%{certs}` | 7.88.0 |
+
+Available if wanted: `-w '%{json}'` (7.70.0), `%{errormsg}` and `%{exitcode}`
+(7.75.0), `--fail-with-body` (7.76.0, which just makes it), `--connect-to`
+(7.49.0), `--resolve`, `--doh-url` (7.62.0).
+
+Two things to note about this build specifically. `file` is in its `Protocols:`
+line, so `--proto =http,https` is genuinely load-bearing here rather than
+defensive decoration. And `-X HEAD` hangs until `--max-time` expires, because
+curl waits for a response body that never arrives; use `-I` if HEAD is ever added
+to the allowlist. That one is a curl behaviour, not a version limit.
+
+`GET /api/diagnostics` returns the worker's live `curl --version`, so this can be
+re-checked against the deployed environment rather than trusted indefinitely.
 
 ## APIkit flows
 
@@ -95,27 +199,90 @@ Flow names are generated from the RAML and must match exactly:
 
 ```
 get:\curl:net-tools-config
-post:\curl:application\json:net-tools-config
+post:\curl:net-tools-config
+put:\curl:net-tools-config
+patch:\curl:net-tools-config
+delete:\curl:net-tools-config
 ```
 
-The media-type separator is a **backslash**, not a forward slash, because Mule
-rejects `/` in a flow name outright. The build catches a mismatch, so trust it.
+There is no media-type segment because `/curl` declares no `body:` in the RAML.
+That is deliberate and load-bearing: a declared media type both adds a segment to
+the flow name and hands the payload to DataWeave to parse. Declaring none is what
+lets the body through untouched. If you ever add a `body:` to `/curl`, the flow
+names change and the byte-exact relay is at risk.
 
-The three `POST /curl` flows differ only in how they stringify the payload, then
-delegate to the `curl-request` sub-flow, which holds the only DataWeave-to-Java
-call. Add logic there, not in the per-media-type flows.
+Where a media type *is* declared elsewhere, the separator is a **backslash**, not
+a forward slash, because Mule rejects `/` in a flow name outright. The build
+catches any mismatch, so trust it.
 
-Note that `application/json` and `application/xml` bodies are parsed and
-re-serialised by DataWeave, so they are not byte-exact and a malformed payload
-fails with a 500 rather than a 400. `text/plain` passes through unchanged. Two
-independent reviews suggested dropping the json and xml types for this reason;
-the repository owner chose to keep all three.
+All five flows are one-line `flow-ref`s into the `curl-request` sub-flow, which
+holds the only DataWeave-to-Java call. Add logic there, never in the per-verb
+flows.
 
-## Web UI
+**The listener pins `outputMimeType="application/octet-stream"`, and that is
+load-bearing.** Left with the request's own `Content-Type`, DataWeave resolves
+`payload` to a parsed Object for any format it has a reader for, and
+`read(payload, "application/octet-stream")` then fails outright. Verified against
+a standalone DataWeave engine by binding an `InputStream` with an explicit media
+type:
 
-`src/main/resources/web/index.html` is plain jQuery with no build step. The
-response body comes from an arbitrary target host, so **never concatenate it
-into an HTML string**. Build the element and use `.text()`. That was a real XSS.
+| payload media type | `read(payload, "application/octet-stream")` |
+|---|---|
+| `application/octet-stream` | byte-exact |
+| `text/plain` | byte-exact |
+| a parseable type such as `application/csv` | throws `UnexpectedFunctionCallTypesException` |
+
+So without the pinned media type, `POST /api/curl` with
+`Content-Type: application/json` returns a 500. `payload as Binary` fails the
+same way. `payload.^raw` is the documented raw accessor and may also work, but it
+returned null in that standalone harness, so it was not adopted on the strength
+of the documentation alone. The caller's real content type is unaffected and is
+still read from `attributes.headers["content-type"]`.
+
+**Use `read()`, never `write()`, for the request body.** `write(payload, ...)`
+parses the payload and serialises it again, which used to alter JSON and XML
+bodies on the way through: whitespace, key order, XML comments, CDATA and number
+formatting were all at the serialiser's discretion, and a malformed payload died
+with a 500 before it ever left the worker. `read(payload, "application/octet-stream")`
+hands over the caller's bytes as received. Two independent reviews had suggested
+dropping the json and xml media types over this; declaring no body at all
+resolves it instead, and every content type is now accepted.
+
+The body reaches Java as `byte[]`, not `String`. A `String` forces a decode and a
+re-encode, which cannot be byte-exact for a payload that is not valid UTF-8 or is
+not text at all.
+
+`curl-request` refuses a body over 10 MiB before the transform, by reading
+`Content-Length` rather than the payload, so nothing is buffered in order to
+decide. Without it an authenticated caller could `PUT` a multi-gigabyte body and
+`read()` would pull all of it into the heap of a small worker. The limit matches
+the cap that `max-filesize` puts on the response, which exists for the same
+reason. **A chunked request declares no length and so is not covered.** Closing
+that gap means streaming the body into curl's stdin instead of passing a
+`byte[]`, which is a larger change than it looks.
+
+**Target headers use a prefix, not a repeated header name.** Each one is sent as
+`x-target-h-<name>: <value>` and rebuilt into the `name: value` form curl's `-H`
+expects. 3.0 originally declared a repeatable `x-target-header` in the RAML, and
+in a real RTF deployment only the **last** occurrence survived: sending
+`client-secret` then `client-id` delivered only `client-id`, and reversing the
+order reversed which one was lost. A single occurrence always arrived.
+
+The culprit was never pinned down. `NetworkUtils` forwards repeated headers
+correctly against a local echo server, DataWeave's `.*` multi-value selector
+returns every value, and APIkit's `HeadersValidator.analyseRequestHeaders` looks
+like it preserves them: `deserializeListOfValues` builds a full `ArrayList` and
+the result is stored with `MultiMap.put(key, Collection)`. That leaves the
+ingress or the client folding duplicates by overwrite. One header name per target
+header sidesteps the question entirely, so do not "simplify" it back into a
+repeated header.
+
+Consequences worth knowing: target header names arrive lowercased, because the
+connector normalises inbound names. HTTP/1.1 treats names case-insensitively and
+HTTP/2 requires lowercase, so this is harmless. And the names cannot be declared
+in the RAML, since they are not known in advance; they are undeclared headers,
+which APIkit passes through untouched as long as strict header validation stays
+off.
 
 ## Releasing
 
@@ -149,16 +316,19 @@ is always wrong here: the parent was archived on 4 May 2024 and is read-only.
 Always target this repository explicitly:
 
 ```
-gh pr create --repo stn1slv/mule-net-tools-api --base master --head <branch>
+gh pr create --repo stn1slv/mule-net-tools --base main --head <branch>
 ```
+
+The default branch here is `main`. `master` is the archived parent's default and
+is not a branch of this repository.
 
 Then confirm it landed where you meant, because the failure is silent:
 
 ```
-gh pr view <n> --repo stn1slv/mule-net-tools-api --json baseRefName,url
+gh pr view <n> --repo stn1slv/mule-net-tools --json baseRefName,url
 ```
 
 The same applies to `gh issue`, `gh release` and any other `gh` command that
-resolves a default repository. `origin` is `stn1slv/mule-net-tools-api` (renamed
+resolves a default repository. `origin` is `stn1slv/mule-net-tools` (renamed
 from `mulesoft-net-tools-api`, so old URLs still redirect); `upstream` is the
 archived parent.
