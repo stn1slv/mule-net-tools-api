@@ -79,6 +79,7 @@ remove one without understanding what it stops.
 | `--connect-timeout` / `--max-time` | There was no timeout at all; an unresponsive target pinned a Mule worker thread indefinitely. |
 | `-sS` | Keeps curl's progress meter, which it writes to stderr whenever stdout is not a terminal, out of the text returned to the caller. Errors still surface. `execute()` merges stderr into stdout with `redirectErrorStream(true)`, so this is presentation rather than the deadlock guard it originally was. |
 | reject `\r` and `\n` in the forwarded `Content-Type` | Since 3.0 the inbound `Content-Type` becomes a third source of `-H` arguments, so it needs the same line-break check as the caller-supplied headers. The HTTP connector should already make a CRLF-bearing header value unreachable; this is defence in depth. |
+| `reinterpretAsUtf8` on every header-derived value | Header values carry no charset and are decoded as ISO-8859-1 by convention, so a UTF-8 `café` arrives as `cafÃ©`. The ISO-8859-1 round trip is lossless, so the original bytes are recovered and decoded as UTF-8. It runs **before** the CRLF and `@` checks so validation sees the final value. Deliberately conservative: ASCII is returned untouched, anything already above U+00FF is left alone, and strict decoding means a genuinely non-UTF-8 value keeps its characters instead of becoming U+FFFD. |
 | the `Content-Type` block runs **after** the header loop | That ordering is what makes an explicit `x-target-header: Content-Type:` win over the inbound one. Hoisting it above the loop would silently invert the documented precedence. `hasContentTypeHeader` compares the name before the first colon, with whitespace stripped, rather than matching a `content-type:` prefix, so `Content-Type : x` is still recognised as an override. |
 
 The verb allowlist is enforced twice. Since 3.0 the primary enforcement is
@@ -111,6 +112,24 @@ not the URI, and *raw* rather than `requestPath` because the latter is
 URL-decoded, so `/api/%0aINFO%20forged` would decode into a real newline and let a
 caller forge log entries. `rawRequestPath` is the path as received and needs HTTP
 connector 1.5.0 or later.
+
+### Non-ASCII depends on the worker JVM's native encoding
+
+`reinterpretAsUtf8` fixes the first link in the chain, not the whole chain.
+Header values are handed to curl as `ProcessBuilder` arguments, and the JVM
+encodes those with `sun.jnu.encoding`, which follows the OS locale rather than
+`file.encoding`. On a worker with no `LANG` set that can be `ANSI_X3.4-1968`, in
+which case every non-ASCII character in a header becomes `?` on the wire no
+matter what this code does. The same assumption already appears in `execute()`,
+where the `Scanner` is pinned to UTF-8 for exactly this reason.
+
+So non-ASCII header values work when, and only when, the worker JVM's native
+encoding is UTF-8. It was verified end to end on a development machine where it
+is; it has **not** been verified on a worker. If a non-ASCII value arrives at the
+target as `?`, this is where to look, not in `reinterpretAsUtf8`.
+
+The request body is unaffected: it goes to curl's stdin as raw bytes and never
+passes through an argument.
 
 ### The worker's curl is 7.76.1
 

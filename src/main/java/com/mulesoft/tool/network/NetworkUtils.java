@@ -13,6 +13,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 
 public class NetworkUtils {
 
@@ -69,6 +73,21 @@ public class NetworkUtils {
 		// body is byte[] rather than String on purpose. A String forces a decode and a
 		// re-encode, so a payload that is not valid UTF-8, or is not text at all, would
 		// not reach the target as it arrived. The caller's bytes are relayed untouched.
+		// Everything below arrives from an HTTP header, which is decoded as ISO-8859-1 by
+		// convention. Reinterpret as UTF-8 before anything else, so the validation and the
+		// override matching below all see the value the caller actually meant. Pure ASCII
+		// is untouched, which is almost every request.
+		url = reinterpretAsUtf8(url);
+		user = reinterpretAsUtf8(user);
+		contentType = reinterpretAsUtf8(contentType);
+		if (headers != null) {
+			String[] decoded = new String[headers.length];
+			for (int i = 0; i < headers.length; i++) {
+				decoded[i] = reinterpretAsUtf8(headers[i]);
+			}
+			headers = decoded;
+		}
+
 		String verb = (method == null || method.trim().isEmpty())
 				? "GET" : method.trim().toUpperCase(Locale.ROOT);
 		if (!ALLOWED_METHODS.contains(verb)) {
@@ -172,6 +191,53 @@ public class NetworkUtils {
 		command.add(url);
 		ProcessBuilder pb = new ProcessBuilder(command);
 		return hasBody ? execute(pb, body) : execute(pb);
+	}
+
+	/**
+	 * Reinterprets a header value that arrived decoded as ISO-8859-1 but was actually
+	 * sent as UTF-8.
+	 *
+	 * HTTP header values carry no charset, and the convention inherited from RFC 2616
+	 * is to decode them as ISO-8859-1, which maps every byte to the character of the
+	 * same value. That round trip is lossless, so the original bytes can be recovered
+	 * with getBytes(ISO_8859_1) and decoded again as UTF-8. Callers overwhelmingly send
+	 * UTF-8, so that is the assumption here.
+	 *
+	 * Applied conservatively, because guessing wrong would corrupt a value rather than
+	 * merely fail to improve it:
+	 *   - a pure ASCII value is returned untouched, which is the overwhelming majority;
+	 *   - a value already containing characters above U+00FF cannot have come from a
+	 *     byte-per-character decode, so it is left alone;
+	 *   - decoding is strict, and a byte sequence that is not valid UTF-8 is left as it
+	 *     arrived rather than being replaced with U+FFFD. A genuinely ISO-8859-1 value
+	 *     therefore survives unchanged.
+	 */
+	private static String reinterpretAsUtf8(String value) {
+		if (value == null || value.isEmpty()) {
+			return value;
+		}
+		boolean hasHighByte = false;
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (c > 0xFF) {
+				return value;
+			}
+			if (c > 0x7F) {
+				hasHighByte = true;
+			}
+		}
+		if (!hasHighByte) {
+			return value;
+		}
+		CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+				.onMalformedInput(CodingErrorAction.REPORT)
+				.onUnmappableCharacter(CodingErrorAction.REPORT);
+		try {
+			return decoder.decode(ByteBuffer.wrap(value.getBytes(StandardCharsets.ISO_8859_1)))
+					.toString();
+		} catch (CharacterCodingException e) {
+			return value;
+		}
 	}
 
 	private static boolean hasContentTypeHeader(String[] headers) {
