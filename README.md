@@ -43,7 +43,7 @@ If you need to deploy to a runtime on Mule 4.4, 4.6 or 4.8, use release [2.5.1](
 
 ## Configuration
 
-Set these properties on the app to override the defaults. The ports must match whatever fronts the app — an ingress, a load balancer or a firewall rule. The defaults suit the CloudHub 1.0 shared load balancer; on RTF and CloudHub 2.0 you will usually set one port to match the ingress. See [Network considerations](#network-considerations).
+Set these properties on the app to override the defaults. The ports must match whatever fronts the app: an ingress, a load balancer or a firewall rule. The defaults suit the CloudHub 1.0 shared load balancer; on RTF and CloudHub 2.0 you will usually set one port to match the ingress. See [Network considerations](#network-considerations).
 
 | Property | Default | Purpose |
 |---|---|---|
@@ -61,11 +61,13 @@ Every endpoint lives under `/api` and uses HTTP Basic Authentication with the `u
 
 | Platform | Base URL |
 |---|---|
-| Runtime Fabric | `https://{ingress-host}/{app-name}` — whatever path and host the ingress resource defines |
+| Runtime Fabric | `https://{ingress-host}/{app-name}`, whatever path and host the ingress resource defines |
 | CloudHub 2.0 | `https://{app-name}.{shard}.{region}.cloudhub.io` |
-| CloudHub 1.0, shared load balancer | `http://{app-name}.{region}.cloudhub.io` |
+| CloudHub 1.0, shared load balancer | `https://{app-name}.{region}.cloudhub.io` |
 | CloudHub 1.0, dedicated load balancer | your custom domain |
 | Standalone / on-premises | `http://{host}:8081` or `https://{host}:8082`, per `httpPort` and `httpsPort` |
+
+**Prefer HTTPS.** Authentication is HTTP Basic, so the credentials are base64-encoded but not encrypted, and over plain HTTP anything on the path can read them. The CloudHub 1.0 shared load balancer serves both schemes, so `http://` will work, but use `https://` unless the app is only reachable from a trusted internal network.
 
 ```
 BASE='https://{your-app-host}/api'
@@ -276,7 +278,7 @@ Three behaviours worth knowing:
 
 # Security
 
-**Only the scheme is restricted, not the destination.** `http` and `https` to *any* reachable address are allowed by design, because that is the point of the tool. That includes the app's own listener on `127.0.0.1`, anything else running in the same cluster or subnet, and any cloud instance metadata service the runtime can reach — `169.254.169.254` on CloudHub 1.0, and the equivalent on whatever infrastructure hosts an RTF cluster.
+**Only the scheme is restricted, not the destination.** `http` and `https` to *any* reachable address are allowed by design, because that is the point of the tool. That includes the app's own listener on `127.0.0.1`, anything else running in the same cluster or subnet, and any cloud instance metadata service the runtime can reach: `169.254.169.254` on CloudHub 1.0, and the equivalent on whatever infrastructure hosts an RTF cluster.
 
 Anyone who can authenticate to this app can therefore reach whatever the runtime can reach. **Treat access to this tool as equivalent to shell access on that network, and set a strong `pass`.**
 
@@ -317,7 +319,7 @@ Every 2.x call to `/api/curl` needs changing. The other endpoints are unchanged.
 | `?url=...` | `-H 'x-target-url: ...'` |
 | `?method=PUT` | call the API with `-X PUT` |
 | `?header=Name:value` | `-H 'x-target-h-name: value'` |
-| `?header=A:1&header=B:2` *(repeated)* | `-H 'x-target-h-a: 1' -H 'x-target-h-b: 2'` — one prefixed header each, never a repeated header name |
+| `?header=A:1&header=B:2` *(repeated)* | `-H 'x-target-h-a: 1' -H 'x-target-h-b: 2'` (one prefixed header each, never a repeated header name) |
 | `?insecure=true` | `-H 'x-target-insecure: true'` |
 | `?user=alice:secret` | `-H 'x-target-credentials: alice:secret'` |
 | `?authType=bearer` | `-H 'x-target-auth-type: bearer'` |
